@@ -9,7 +9,9 @@ public record LLMRequest(
     string UserMessage,
     List<LLMMessage>? History = null,
     double Temperature = 0.3,
-    int MaxTokens = 2048
+    // Thinking models (e.g. Gemini 2.5) count internal reasoning tokens against this
+    // budget, so a small value can leave no room for the visible answer. Keep it generous.
+    int MaxTokens = 8192
 );
 
 public record LLMResponse(string Content, int InputTokens, int OutputTokens, bool IsFromFallback);
