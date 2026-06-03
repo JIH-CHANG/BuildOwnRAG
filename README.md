@@ -33,13 +33,16 @@ This section is intentionally explicit so the repository does not overstate what
 - [x] First-run setup wizard and Docker Compose deployment
 - [x] Cosine reranker (default); Cohere reranker optional (needs API key, falls back to cosine)
 
-### TODO (not implemented yet)
+## TODO
 
-- [ ] **Connectors other than Folder** — SharePoint, Confluence, Google Drive, and Arena are
-      placeholder projects (scaffolding only) and do not work yet
-- [ ] **Analytics dashboard UI** — the backend analytics service exists, but there is no frontend page
-- [ ] **Production observability** — Prometheus / Grafana / Loki; only a dev-time Aspire dashboard is wired up
-- [ ] **Broader test coverage** — including frontend integration tests
+- [ ] Connectors other than Folder  
+  SharePoint, Confluence, Google Drive, and Arena are scaffolded only and are not functional yet.
+- [ ] Analytics dashboard UI  
+  The analytics backend is implemented, but the frontend dashboard page is still missing.
+- [ ] Production observability  
+  Production-grade observability is not in place yet. Prometheus, Grafana, and Loki still need to be integrated; currently only the Aspire dashboard is available for development-time diagnostics.
+- [ ] Broader test coverage  
+  Additional automated test coverage is still needed, including frontend integration tests, end-to-end scenarios, regression coverage, and larger-scale validation.
 
 ---
 
