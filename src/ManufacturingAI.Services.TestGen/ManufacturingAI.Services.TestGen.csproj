@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Hangfire.AspNetCore" Version="1.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ManufacturingAI.Core\ManufacturingAI.Core.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Core.RAG\ManufacturingAI.Core.RAG.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Infrastructure\ManufacturingAI.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

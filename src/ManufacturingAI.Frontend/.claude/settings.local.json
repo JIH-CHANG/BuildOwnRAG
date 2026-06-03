@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"http://localhost:3000/_next/static/chunks/app_layout_tsx_004glpo._.js\")"
+    ]
+  }
+}

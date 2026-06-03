@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ManufacturingAI.API/ManufacturingAI.API.csproj" />
+    <Project Path="src/ManufacturingAI.Core.Parser/ManufacturingAI.Core.Parser.csproj" />
+    <Project Path="src/ManufacturingAI.Core.RAG/ManufacturingAI.Core.RAG.csproj" />
+    <Project Path="src/ManufacturingAI.Core/ManufacturingAI.Core.csproj" />
+    <Project Path="src/ManufacturingAI.Infrastructure/ManufacturingAI.Infrastructure.csproj" />
+    <Project Path="src/ManufacturingAI.Services.Analytics/ManufacturingAI.Services.Analytics.csproj" />
+    <Project Path="src/ManufacturingAI.Services.Ingest/ManufacturingAI.Services.Ingest.csproj" />
+    <Project Path="src/ManufacturingAI.Services.Query/ManufacturingAI.Services.Query.csproj" />
+    <Project Path="src/ManufacturingAI.Services.TestGen/ManufacturingAI.Services.TestGen.csproj" />
+    <Project Path="src/ManufacturingAI.Setup/ManufacturingAI.Setup.csproj" />
+  </Folder>
+  <Folder Name="/src/Connectors/">
+    <Project Path="src/ManufacturingAI.Connectors.Arena/ManufacturingAI.Connectors.Arena.csproj" />
+    <Project Path="src/ManufacturingAI.Connectors.Confluence/ManufacturingAI.Connectors.Confluence.csproj" />
+    <Project Path="src/ManufacturingAI.Connectors.Folder/ManufacturingAI.Connectors.Folder.csproj" />
+    <Project Path="src/ManufacturingAI.Connectors.GoogleDrive/ManufacturingAI.Connectors.GoogleDrive.csproj" />
+    <Project Path="src/ManufacturingAI.Connectors.SharePoint/ManufacturingAI.Connectors.SharePoint.csproj" />
+    <Project Path="src/ManufacturingAI.Core.Connectors/ManufacturingAI.Core.Connectors.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ManufacturingAI.Integration.Tests/ManufacturingAI.Integration.Tests.csproj" />
+    <Project Path="tests/ManufacturingAI.Unit.Tests/ManufacturingAI.Unit.Tests.csproj" />
+  </Folder>
+</Solution>

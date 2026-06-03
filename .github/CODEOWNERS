@@ -1,0 +1,13 @@
+# CODEOWNERS — BuildOwnRAG
+#
+# The repository owner is the default reviewer for everything. Combined with the
+# branch-protection option "Require review from Code Owners", every pull request
+# touching these paths needs owner sign-off before it can be merged.
+#
+# IMPORTANT (solo maintainer): GitHub does NOT let you approve your own pull
+# request. While you are the only maintainer, keep "Require review from Code
+# Owners" OFF in branch protection, otherwise you will be unable to merge.
+# Turn it ON once you add collaborators.
+
+# Default owner for everything in the repository
+*       @JIH-CHANG
