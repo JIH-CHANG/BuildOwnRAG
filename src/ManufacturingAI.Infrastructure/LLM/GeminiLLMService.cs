@@ -29,7 +29,7 @@ public sealed class GeminiLLMService : ILLMService
     public async Task<LLMResponse> CompleteAsync(LLMRequest request, CancellationToken ct = default)
     {
         var url = $"{BaseUrl}/{Model}:generateContent?key={ApiKey}";
-        var body = BuildRequestBody(request);
+        var body = BuildRequestBody(request, Model);
 
         using var response = await PostWithRetryAsync(url, body, ct);
         await EnsureGeminiSuccessAsync(response, Model, ct);
@@ -37,9 +37,24 @@ public sealed class GeminiLLMService : ILLMService
         var result = await response.Content
             .ReadFromJsonAsync<GenerateContentResponse>(cancellationToken: ct);
 
-        var text = result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? string.Empty;
+        var candidate = result?.Candidates?.FirstOrDefault();
+        var text = candidate?.Content?.Parts?.FirstOrDefault()?.Text ?? string.Empty;
         var inputTokens = result?.UsageMetadata?.PromptTokenCount ?? 0;
         var outputTokens = result?.UsageMetadata?.CandidatesTokenCount ?? 0;
+
+        // Gemini returns HTTP 200 with an empty/truncated answer when the output budget
+        // (maxOutputTokens) is exhausted — on thinking models the reasoning tokens can
+        // consume it entirely, leaving no visible text. Surface this instead of an empty bubble.
+        if (string.Equals(candidate?.FinishReason, "MAX_TOKENS", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrEmpty(text))
+                throw new InvalidOperationException(
+                    "Gemini returned no content because the output limit (MAX_TOKENS) was reached; " +
+                    "on thinking models the reasoning tokens can consume the entire maxOutputTokens. " +
+                    "Raise MaxTokens in Settings, or switch to a non-thinking model.");
+
+            text += "\n\n[Note: the response may be truncated because the output limit was reached.]";
+        }
 
         return new LLMResponse(text, inputTokens, outputTokens, IsFromFallback: false);
     }
@@ -49,13 +64,16 @@ public sealed class GeminiLLMService : ILLMService
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var url = $"{BaseUrl}/{Model}:streamGenerateContent?key={ApiKey}&alt=sse";
-        var body = BuildRequestBody(request);
+        var body = BuildRequestBody(request, Model);
 
         using var response = await SendStreamWithRetryAsync(url, body, ct);
         await EnsureGeminiSuccessAsync(response, Model, ct);
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         using var reader = new System.IO.StreamReader(stream);
+
+        var produced = false;
+        string? finishReason = null;
 
         while (!reader.EndOfStream && !ct.IsCancellationRequested)
         {
@@ -70,10 +88,22 @@ public sealed class GeminiLLMService : ILLMService
             try { chunk = System.Text.Json.JsonSerializer.Deserialize<GenerateContentResponse>(json); }
             catch { continue; }
 
-            var text = chunk?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+            var candidate = chunk?.Candidates?.FirstOrDefault();
+            finishReason = candidate?.FinishReason ?? finishReason;
+
+            var text = candidate?.Content?.Parts?.FirstOrDefault()?.Text;
             if (!string.IsNullOrEmpty(text))
+            {
+                produced = true;
                 yield return text;
+            }
         }
+
+        // Same MAX_TOKENS guard as CompleteAsync: if thinking consumed the whole budget
+        // the stream yields no text, which would otherwise render as an empty bubble.
+        if (!produced && string.Equals(finishReason, "MAX_TOKENS", StringComparison.OrdinalIgnoreCase))
+            yield return "[Gemini returned no content: output limit (MAX_TOKENS) reached. " +
+                         "Raise MaxTokens in Settings, or switch to a non-thinking model.]";
     }
 
     // Retries on 429 with exponential backoff (2s → 4s → 8s), matching GeminiEmbeddingService.
@@ -128,7 +158,7 @@ public sealed class GeminiLLMService : ILLMService
         };
     }
 
-    private static object BuildRequestBody(LLMRequest request)
+    private static object BuildRequestBody(LLMRequest request, string model)
     {
         var contents = new List<object>();
 
@@ -144,19 +174,39 @@ public sealed class GeminiLLMService : ILLMService
 
         contents.Add(new { role = "user", parts = new[] { new { text = request.UserMessage } } });
 
-        return new
+        var systemInstruction = string.IsNullOrEmpty(request.SystemPrompt) ? null : new
         {
-            contents,
-            systemInstruction = string.IsNullOrEmpty(request.SystemPrompt) ? null : new
+            parts = new[] { new { text = request.SystemPrompt } }
+        };
+
+        // On thinking models the reasoning tokens count against maxOutputTokens, so we
+        // disable thinking to guarantee the budget is spent on the visible answer.
+        var thinkingBudget = ResolveThinkingBudget(model);
+        object generationConfig = thinkingBudget is int budget
+            ? new
             {
-                parts = new[] { new { text = request.SystemPrompt } }
-            },
-            generationConfig = new
+                temperature = request.Temperature,
+                maxOutputTokens = request.MaxTokens,
+                thinkingConfig = new { thinkingBudget = budget }
+            }
+            : new
             {
                 temperature = request.Temperature,
                 maxOutputTokens = request.MaxTokens
-            }
-        };
+            };
+
+        return new { contents, systemInstruction, generationConfig };
+    }
+
+    // thinkingBudget = 0 disables thinking. Only the Gemini 2.5+/3.x "flash" family
+    // supports disabling it; older flash models (1.5 / 2.0) don't think, and "pro"
+    // models reject a zero budget, so we omit thinkingConfig (null) for those.
+    private static int? ResolveThinkingBudget(string model)
+    {
+        var m = model.ToLowerInvariant();
+        if (m.Contains("flash") && !m.Contains("1.5") && !m.Contains("2.0"))
+            return 0;
+        return null;
     }
 
     // ── Response DTOs ────────────────────────────────────────────────────────
@@ -166,7 +216,8 @@ public sealed class GeminiLLMService : ILLMService
         [property: JsonPropertyName("usageMetadata")] UsageMetadata? UsageMetadata);
 
     private sealed record Candidate(
-        [property: JsonPropertyName("content")] ContentBlock? Content);
+        [property: JsonPropertyName("content")] ContentBlock? Content,
+        [property: JsonPropertyName("finishReason")] string? FinishReason);
 
     private sealed record ContentBlock(
         [property: JsonPropertyName("parts")] List<Part>? Parts);
