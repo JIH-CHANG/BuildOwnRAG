@@ -145,10 +145,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {isUser ? "U" : "AI"}
       </div>
 
-      <div className="flex max-w-[75%] flex-col gap-2">
+      <div className="flex min-w-0 max-w-[75%] flex-col gap-2">
         <div
           className={cn(
             "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+            // Preserve newlines and force long unbroken tokens (e.g. hex keys) to wrap
+            // instead of overflowing the bubble horizontally.
+            "whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
             isUser
               ? "rounded-tr-sm bg-accent text-white"
               : "rounded-tl-sm bg-surface-border text-slate-200"
