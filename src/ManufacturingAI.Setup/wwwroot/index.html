@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BuildOwnRAG Setup</title>
+<style>
+:root {
+  --bg:        #0f1117;
+  --surface:   #1a1d27;
+  --surface-2: #20242f;
+  --border:    #2a2d3e;
+  --primary:   #4f98a3;
+  --primary-h: #3d8a96;
+  --primary-bg:rgba(79,152,163,.12);
+  --text:      #e2e8f0;
+  --muted:     #64748b;
+  --dim:       #94a3b8;
+  --success:   #34d399;
+  --success-bg:rgba(52,211,153,.12);
+  --error:     #f87171;
+  --error-bg:  rgba(248,113,113,.12);
+  --warn:      #fbbf24;
+  --warn-bg:   rgba(251,191,36,.10);
+  --radius:    6px;
+  --radius-lg: 10px;
+  --tr:        150ms ease;
+  --shadow:    0 8px 40px rgba(0,0,0,.5);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+body{display:flex;flex-direction:column;min-height:100vh}
+input,select,button,textarea{font-family:inherit}
+
+/* ── Layout ── */
+.header{display:flex;align-items:center;gap:.75rem;padding:1rem 1.5rem;border-bottom:1px solid var(--border);background:var(--surface)}
+.logo{font-size:1.25rem;font-weight:700;letter-spacing:-.02em;color:var(--text)}
+.logo span{color:var(--primary)}
+.badge{font-size:.7rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:.2rem .6rem;border-radius:99px;background:var(--primary-bg);color:var(--primary);border:1px solid rgba(79,152,163,.3)}
+.main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:2.5rem 1rem}
+.wizard{width:100%;max-width:680px}
+
+/* ── Step indicator ── */
+.step-track{display:flex;align-items:center;margin-bottom:2.5rem}
+.step-item{display:flex;flex-direction:column;align-items:center;gap:.375rem;flex:1}
+.step-circle{width:2rem;height:2rem;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:.8125rem;font-weight:700;color:var(--muted);transition:var(--tr);position:relative;z-index:1;background:var(--bg)}
+.step-label{font-size:.7rem;color:var(--muted);font-weight:500;text-align:center;white-space:nowrap}
+.step-connector{flex:1;height:2px;background:var(--border);margin:0 -.5rem;margin-bottom:1.25rem;transition:background var(--tr)}
+.step-item.active .step-circle{border-color:var(--primary);color:var(--primary);background:var(--primary-bg)}
+.step-item.active .step-label{color:var(--primary)}
+.step-item.done .step-circle{border-color:var(--success);background:var(--success-bg);color:var(--success)}
+.step-item.done .step-label{color:var(--success)}
+.step-connector.done{background:var(--success)}
+.step-connector.active{background:var(--primary)}
+
+/* ── Card ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.75rem;box-shadow:var(--shadow);margin-bottom:1rem}
+.card-title{font-size:1.1rem;font-weight:700;color:var(--text);margin-bottom:.375rem}
+.card-sub{font-size:.875rem;color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
+
+/* ── Form ── */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:.875rem}
+.form-grid.wide{grid-template-columns:2fr 1fr}
+.form-group{display:flex;flex-direction:column;gap:.375rem}
+.form-group.full{grid-column:1/-1}
+label{font-size:.8125rem;font-weight:500;color:var(--dim)}
+input,select{width:100%;padding:.5rem .75rem;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:.875rem;transition:border-color var(--tr),box-shadow var(--tr)}
+input::placeholder{color:var(--muted)}
+input:focus,select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,152,163,.2)}
+input.error{border-color:var(--error)}
+.field-error{font-size:.75rem;color:var(--error);margin-top:.25rem}
+select option{background:#1a1d27}
+
+/* ── Sections ── */
+.section{margin-bottom:1.5rem}
+.section-label{font-size:.75rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--primary);margin-bottom:.875rem;padding-bottom:.5rem;border-bottom:1px solid var(--border)}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.5625rem 1.25rem;border:none;border-radius:var(--radius);font-size:.875rem;font-weight:600;cursor:pointer;transition:background var(--tr),opacity var(--tr)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover:not(:disabled){background:var(--primary-h)}
+.btn-ghost{background:transparent;color:var(--dim);border:1px solid var(--border)}
+.btn-ghost:hover:not(:disabled){background:rgba(255,255,255,.04);color:var(--text)}
+.btn-sm{padding:.375rem .875rem;font-size:.8125rem}
+.actions{display:flex;align-items:center;justify-content:space-between;margin-top:1.5rem;gap:1rem}
+.actions-right{display:flex;gap:.75rem;margin-left:auto}
+
+/* ── Connection results table ── */
+.conn-table{width:100%;border-collapse:collapse;margin-top:1rem;font-size:.875rem}
+.conn-table th{text-align:left;padding:.5rem .75rem;color:var(--muted);font-weight:500;font-size:.75rem;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--border)}
+.conn-table td{padding:.625rem .75rem;border-bottom:1px solid rgba(42,45,62,.5)}
+.conn-table tr:last-child td{border-bottom:none}
+.status-ok{display:inline-flex;align-items:center;gap:.375rem;color:var(--success);font-weight:600}
+.status-fail{display:inline-flex;align-items:center;gap:.375rem;color:var(--error);font-weight:600}
+.hint-text{font-size:.75rem;color:var(--muted)}
+
+/* ── Alert ── */
+.alert{display:flex;align-items:flex-start;gap:.625rem;padding:.75rem 1rem;border-radius:var(--radius);font-size:.8125rem;line-height:1.5;margin-top:1rem}
+.alert-info{background:var(--primary-bg);color:var(--primary);border:1px solid rgba(79,152,163,.25)}
+.alert-warn{background:var(--warn-bg);color:var(--warn);border:1px solid rgba(251,191,36,.25)}
+.alert-success{background:var(--success-bg);color:var(--success);border:1px solid rgba(52,211,153,.25)}
+.alert-error{background:var(--error-bg);color:var(--error);border:1px solid rgba(248,113,113,.25)}
+.alert-icon{flex-shrink:0;margin-top:.1rem}
+
+/* ── Spinner ── */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:currentColor;border-radius:50%;animation:spin .65s linear infinite;flex-shrink:0}
+.spinner-sm{width:12px;height:12px}
+
+/* ── Embedding preview ── */
+.embedding-preview{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:.75rem 1rem;font-size:.8125rem;color:var(--dim);display:flex;align-items:center;gap:.5rem}
+.embedding-tag{background:var(--primary-bg);color:var(--primary);border-radius:99px;padding:.125rem .5rem;font-size:.75rem;font-weight:600}
+
+/* ── Password strength ── */
+.pwd-rules{list-style:none;display:flex;flex-direction:column;gap:.25rem;margin-top:.5rem}
+.pwd-rule{display:flex;align-items:center;gap:.375rem;font-size:.75rem;color:var(--muted)}
+.pwd-rule.ok{color:var(--success)}
+.pwd-rule svg{flex-shrink:0}
+
+/* ── Install progress ── */
+.progress-list{display:flex;flex-direction:column;gap:.625rem;margin-top:1rem}
+.progress-item{display:flex;align-items:center;gap:.75rem;padding:.625rem 1rem;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);font-size:.875rem}
+.progress-item.running{border-color:rgba(79,152,163,.3)}
+.progress-item.done{border-color:rgba(52,211,153,.3)}
+.progress-item.failed{border-color:rgba(248,113,113,.3)}
+.progress-icon{flex-shrink:0;width:1.25rem;text-align:center}
+.progress-msg{flex:1;color:var(--dim)}
+.progress-item.done .progress-msg{color:var(--success)}
+.progress-item.failed .progress-msg{color:var(--error)}
+
+/* ── Summary ── */
+.summary-grid{display:grid;grid-template-columns:auto 1fr;gap:.5rem 1.5rem;font-size:.875rem}
+.summary-key{color:var(--muted);white-space:nowrap}
+.summary-val{color:var(--text);font-weight:500;word-break:break-all}
+
+/* ── Done screen ── */
+.done-screen{text-align:center;padding:2rem 1rem}
+.done-icon{width:4rem;height:4rem;border-radius:50%;background:var(--success-bg);border:2px solid rgba(52,211,153,.4);display:flex;align-items:center;justify-content:center;margin:0 auto 1.25rem;color:var(--success)}
+.done-title{font-size:1.375rem;font-weight:700;color:var(--text);margin-bottom:.5rem}
+.done-sub{font-size:.9rem;color:var(--muted);margin-bottom:2rem}
+
+/* ── Responsive ── */
+@media(max-width:560px){
+  .form-grid{grid-template-columns:1fr}
+  .form-grid.wide{grid-template-columns:1fr}
+  .actions{flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <span class="logo">BuildOwn<span>RAG</span></span>
+  <span class="badge">Setup Wizard</span>
+</header>
+
+<main class="main">
+<div class="wizard">
+
+  <!-- Step track -->
+  <div class="step-track" id="step-track">
+    <div class="step-item active" id="track-1">
+      <div class="step-circle">1</div>
+      <div class="step-label">Services</div>
+    </div>
+    <div class="step-connector" id="conn-1-2"></div>
+    <div class="step-item" id="track-2">
+      <div class="step-circle">2</div>
+      <div class="step-label">AI Provider</div>
+    </div>
+    <div class="step-connector" id="conn-2-3"></div>
+    <div class="step-item" id="track-3">
+      <div class="step-circle">3</div>
+      <div class="step-label">Admin Account</div>
+    </div>
+    <div class="step-connector" id="conn-3-4"></div>
+    <div class="step-item" id="track-4">
+      <div class="step-circle">4</div>
+      <div class="step-label">Install</div>
+    </div>
+  </div>
+
+  <!-- Step 1: Service Connections -->
+  <div id="step-1">
+    <div class="card">
+      <div class="card-title">Service Connections</div>
+      <div class="card-sub">Enter the connection details for each infrastructure service. All services must be reachable before proceeding.</div>
+
+      <div class="section">
+        <div class="section-label">PostgreSQL</div>
+        <div class="form-grid wide">
+          <div class="form-group">
+            <label for="pg-host">Host</label>
+            <input id="pg-host" type="text" value="postgres" placeholder="postgres" />
+          </div>
+          <div class="form-group">
+            <label for="pg-port">Port</label>
+            <input id="pg-port" type="number" value="5432" placeholder="5432" />
+          </div>
+          <div class="form-group">
+            <label for="pg-db">Database</label>
+            <input id="pg-db" type="text" value="buildownrag" placeholder="buildownrag" />
+          </div>
+          <div class="form-group">
+            <label for="pg-user">Username</label>
+            <input id="pg-user" type="text" value="postgres" placeholder="postgres" />
+          </div>
+          <div class="form-group full">
+            <label for="pg-pass">Password</label>
+            <input id="pg-pass" type="password" placeholder="••••••••" />
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-label">Redis</div>
+        <div class="form-grid wide">
+          <div class="form-group">
+            <label for="redis-host">Host</label>
+            <input id="redis-host" type="text" value="redis" placeholder="redis" />
+          </div>
+          <div class="form-group">
+            <label for="redis-port">Port</label>
+            <input id="redis-port" type="number" value="6379" placeholder="6379" />
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-label">Qdrant</div>
+        <div class="form-grid wide">
+          <div class="form-group">
+            <label for="qdrant-host">Host</label>
+            <input id="qdrant-host" type="text" value="qdrant" placeholder="qdrant" />
+          </div>
+          <div class="form-group">
+            <label for="qdrant-port">HTTP Port</label>
+            <input id="qdrant-port" type="number" value="6333" placeholder="6333" />
+          </div>
+        </div>
+      </div>
+
+      <div id="conn-results"></div>
+
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" onclick="testConnections()" id="btn-test">
+          <span id="test-spinner" style="display:none" class="spinner spinner-sm"></span>
+          Test Connections
+        </button>
+        <div class="actions-right">
+          <button class="btn btn-primary" id="btn-next-1" disabled onclick="goStep(2)">
+            Next &rsaquo;
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: AI Provider -->
+  <div id="step-2" style="display:none">
+    <div class="card">
+      <div class="card-title">AI Provider</div>
+      <div class="card-sub">Choose your LLM provider and enter credentials. Embedding settings are automatically matched.</div>
+
+      <div class="form-group" style="margin-bottom:1.25rem">
+        <label for="llm-provider">Provider</label>
+        <select id="llm-provider" onchange="onProviderChange()">
+          <option value="openai">OpenAI</option>
+          <option value="azureopenai">Azure OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="ollama">Ollama (local, free)</option>
+          <option value="claude">Claude (Anthropic)</option>
+        </select>
+      </div>
+
+      <!-- OpenAI -->
+      <div id="prov-openai">
+        <div class="form-grid">
+          <div class="form-group full">
+            <label for="openai-key">API Key</label>
+            <input id="openai-key" type="password" placeholder="sk-..." />
+          </div>
+          <div class="form-group full">
+            <label for="openai-model">Chat Model</label>
+            <select id="openai-model">
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="gpt-4o">gpt-4o</option>
+              <option value="gpt-4-turbo">gpt-4-turbo</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Azure OpenAI -->
+      <div id="prov-azureopenai" style="display:none">
+        <div class="form-grid">
+          <div class="form-group full">
+            <label for="azure-endpoint">Endpoint</label>
+            <input id="azure-endpoint" type="text" placeholder="https://my-resource.openai.azure.com" />
+          </div>
+          <div class="form-group full">
+            <label for="azure-key">API Key</label>
+            <input id="azure-key" type="password" placeholder="••••••••" />
+          </div>
+          <div class="form-group full">
+            <label for="azure-deployment">Deployment Name</label>
+            <input id="azure-deployment" type="text" placeholder="gpt-4o" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Gemini -->
+      <div id="prov-gemini" style="display:none">
+        <div class="form-grid">
+          <div class="form-group full">
+            <label for="gemini-key">Gemini API Key</label>
+            <input id="gemini-key" type="password" placeholder="AI..." />
+          </div>
+          <div class="form-group full">
+            <label for="gemini-model">Chat Model</label>
+            <select id="gemini-model">
+              <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+              <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+              <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ollama -->
+      <div id="prov-ollama" style="display:none">
+        <div class="form-grid">
+          <div class="form-group full">
+            <label for="ollama-url">Ollama Base URL</label>
+            <input id="ollama-url" type="text" value="http://ollama:11434" placeholder="http://localhost:11434" />
+          </div>
+          <div class="form-group full">
+            <label for="ollama-model">Chat Model</label>
+            <input id="ollama-model" type="text" value="qwen2.5" placeholder="qwen2.5" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Claude -->
+      <div id="prov-claude" style="display:none">
+        <div class="form-grid">
+          <div class="form-group full">
+            <label for="claude-key">Anthropic API Key</label>
+            <input id="claude-key" type="password" placeholder="sk-ant-..." />
+          </div>
+          <div class="form-group full">
+            <label for="claude-model">Chat Model</label>
+            <select id="claude-model">
+              <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+              <option value="claude-opus-4-7">claude-opus-4-7</option>
+              <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:1rem;padding:.875rem;background:rgba(255,255,255,0.04);border-radius:6px;border:1px solid var(--border)">
+          <div style="font-size:.8125rem;font-weight:500;color:var(--text-secondary);margin-bottom:.75rem">
+            Embedding Provider
+            <span style="font-size:.75rem;font-weight:400;color:var(--muted)"> — Claude does not provide embeddings</span>
+          </div>
+          <div class="form-group" style="margin-bottom:.75rem">
+            <label for="claude-embed-provider">Provider</label>
+            <select id="claude-embed-provider" onchange="onClaudeEmbedChange()">
+              <option value="openai">OpenAI</option>
+              <option value="ollama">Ollama (local)</option>
+            </select>
+          </div>
+          <div id="claude-embed-openai">
+            <div class="form-group" style="margin-bottom:0">
+              <label for="claude-embed-openai-key">OpenAI Embedding API Key</label>
+              <input id="claude-embed-openai-key" type="password" placeholder="sk-..." />
+            </div>
+          </div>
+          <div id="claude-embed-ollama" style="display:none">
+            <div class="form-grid">
+              <div class="form-group full">
+                <label for="claude-embed-ollama-url">Ollama Base URL</label>
+                <input id="claude-embed-ollama-url" type="text" value="http://ollama:11434" placeholder="http://localhost:11434" />
+              </div>
+              <div class="form-group full">
+                <label for="claude-embed-ollama-model">Embedding Model</label>
+                <input id="claude-embed-ollama-model" type="text" value="nomic-embed-text" placeholder="nomic-embed-text" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="embedding-preview" id="embed-preview" style="margin-top:1.25rem">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        Embedding: <span class="embedding-tag" id="embed-tag">text-embedding-3-small</span>
+        <span id="embed-dim" style="color:var(--muted)">1536D</span>
+      </div>
+
+      <div id="llm-result"></div>
+
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" onclick="testLlm()" id="btn-test-llm">
+          <span id="llm-spinner" style="display:none" class="spinner spinner-sm"></span>
+          Test Connection
+        </button>
+        <div class="actions-right">
+          <button class="btn btn-ghost" onclick="goStep(1)">&lsaquo; Back</button>
+          <button class="btn btn-primary" id="btn-next-2" disabled onclick="goStep(3)">Next &rsaquo;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: Admin Account -->
+  <div id="step-3" style="display:none">
+    <div class="card">
+      <div class="card-title">Admin Account</div>
+      <div class="card-sub">Create the initial administrator account for your organization.</div>
+
+      <div class="form-grid">
+        <div class="form-group full">
+          <label for="org-name">Organization Name</label>
+          <input id="org-name" type="text" placeholder="My Factory" oninput="validateStep3()" />
+        </div>
+        <div class="form-group full">
+          <label for="admin-email">Admin Email</label>
+          <input id="admin-email" type="email" placeholder="admin@factory.com" oninput="validateStep3()" />
+          <div class="field-error" id="err-email"></div>
+        </div>
+        <div class="form-group">
+          <label for="admin-pwd">Password</label>
+          <input id="admin-pwd" type="password" placeholder="Min 8 characters" oninput="validateStep3()" />
+        </div>
+        <div class="form-group">
+          <label for="admin-confirm">Confirm Password</label>
+          <input id="admin-confirm" type="password" placeholder="Repeat password" oninput="validateStep3()" />
+          <div class="field-error" id="err-confirm"></div>
+        </div>
+      </div>
+
+      <ul class="pwd-rules" id="pwd-rules">
+        <li class="pwd-rule" id="rule-len">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/></svg>
+          At least 8 characters
+        </li>
+        <li class="pwd-rule" id="rule-upper">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/></svg>
+          Contains uppercase letter
+        </li>
+        <li class="pwd-rule" id="rule-digit">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/></svg>
+          Contains number
+        </li>
+        <li class="pwd-rule" id="rule-special">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/></svg>
+          Contains special character (!@#$...)
+        </li>
+      </ul>
+
+      <div class="actions">
+        <div class="actions-right">
+          <button class="btn btn-ghost" onclick="goStep(2)">&lsaquo; Back</button>
+          <button class="btn btn-primary" id="btn-next-3" disabled onclick="goStep(4)">Review &amp; Install &rsaquo;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 4: Summary + Install -->
+  <div id="step-4" style="display:none">
+    <div id="view-summary">
+      <div class="card">
+        <div class="card-title">Review Configuration</div>
+        <div class="card-sub">Please verify the settings below before starting installation.</div>
+        <div class="summary-grid" id="summary-grid"></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost" onclick="goStep(3)">&lsaquo; Back</button>
+        <button class="btn btn-primary" id="btn-install" onclick="startInstall()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Start Installation
+        </button>
+      </div>
+    </div>
+
+    <div id="view-install" style="display:none">
+      <div class="card">
+        <div class="card-title">Installing BuildOwnRAG...</div>
+        <div class="card-sub">This may take 1–2 minutes. Do not close this window.</div>
+        <div class="progress-list" id="progress-list"></div>
+      </div>
+    </div>
+
+    <div id="view-done" style="display:none">
+      <div class="card done-screen">
+        <div class="done-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="done-title">Setup Complete!</div>
+        <div class="done-sub">BuildOwnRAG is ready. Click below to open the main application.</div>
+        <a href="http://localhost:8080" class="btn btn-primary" style="text-decoration:none;margin:0 auto">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open BuildOwnRAG &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+
+</div>
+</main>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+var currentStep = 1;
+var connectionsOk = false;
+var llmOk = false;
+
+// ── Boot: check if already installed ────────────────────────────────────────
+(async function() {
+  try {
+    const r = await fetch('/api/setup/status');
+    const d = await r.json();
+    if (d.isCompleted) {
+      window.location.href = 'http://localhost:8080';
+    }
+  } catch {}
+})();
+
+// ── Step navigation ──────────────────────────────────────────────────────────
+function goStep(n) {
+  document.getElementById('step-' + currentStep).style.display = 'none';
+  document.getElementById('step-' + n).style.display = '';
+  updateTrack(n);
+  currentStep = n;
+  if (n === 4) buildSummary();
+}
+
+function updateTrack(active) {
+  for (var i = 1; i <= 4; i++) {
+    var item = document.getElementById('track-' + i);
+    item.className = 'step-item' + (i < active ? ' done' : i === active ? ' active' : '');
+    if (i < 4) {
+      var conn = document.getElementById('conn-' + i + '-' + (i + 1));
+      conn.className = 'step-connector' + (i < active ? ' done' : i === active ? ' active' : '');
+    }
+  }
+}
+
+// ── Step 1: Connection test ──────────────────────────────────────────────────
+async function testConnections() {
+  var btn = document.getElementById('btn-test');
+  var sp  = document.getElementById('test-spinner');
+  btn.disabled = true;
+  sp.style.display = 'inline-block';
+  document.getElementById('conn-results').innerHTML = '';
+  connectionsOk = false;
+  document.getElementById('btn-next-1').disabled = true;
+
+  var payload = {
+    postgresHost:     document.getElementById('pg-host').value.trim() || 'postgres',
+    postgresPort:     parseInt(document.getElementById('pg-port').value) || 5432,
+    postgresDb:       document.getElementById('pg-db').value.trim() || 'buildownrag',
+    postgresUser:     document.getElementById('pg-user').value.trim() || 'postgres',
+    postgresPassword: document.getElementById('pg-pass').value,
+    redisHost:        document.getElementById('redis-host').value.trim() || 'redis',
+    redisPort:        parseInt(document.getElementById('redis-port').value) || 6379,
+    qdrantHost:       document.getElementById('qdrant-host').value.trim() || 'qdrant',
+    qdrantHttpPort:   parseInt(document.getElementById('qdrant-port').value) || 6333
+  };
+
+  try {
+    var res = await fetch('/api/setup/test-connections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    var data = await res.json();
+    renderConnResults(data.results);
+    connectionsOk = data.results.every(function(r) { return r.ok; });
+    document.getElementById('btn-next-1').disabled = !connectionsOk;
+  } catch(e) {
+    showAlert('conn-results', 'error', 'Request failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    sp.style.display = 'none';
+  }
+}
+
+function renderConnResults(results) {
+  var allOk = results.every(function(r) { return r.ok; });
+  var html = '<table class="conn-table"><thead><tr><th>Service</th><th>Status</th><th>Detail</th></tr></thead><tbody>';
+  results.forEach(function(r) {
+    var statusHtml = r.ok
+      ? '<span class="status-ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>OK</span>'
+      : '<span class="status-fail"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>FAILED</span>';
+    html += '<tr><td>' + esc(r.service) + '</td><td>' + statusHtml + '</td><td><span class="hint-text">' + esc(r.hint) + '</span></td></tr>';
+  });
+  html += '</tbody></table>';
+  if (allOk) {
+    html += '<div class="alert alert-success" style="margin-top:.875rem"><svg class="alert-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>All services reachable — you can proceed.</div>';
+  } else {
+    html += '<div class="alert alert-warn"><svg class="alert-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Fix failing services and test again.</div>';
+  }
+  document.getElementById('conn-results').innerHTML = html;
+}
+
+// ── Step 2: LLM Provider ─────────────────────────────────────────────────────
+var EMBED_DEFAULTS = {
+  openai:      { model: 'text-embedding-3-small', dim: '1536D' },
+  azureopenai: { model: 'text-embedding-3-small', dim: '1536D' },
+  gemini:      { model: 'text-embedding-004',     dim: '768D' },
+  ollama:      { model: 'nomic-embed-text',        dim: '768D' }
+};
+
+function onProviderChange() {
+  var v = document.getElementById('llm-provider').value;
+  ['openai','azureopenai','gemini','ollama','claude'].forEach(function(p) {
+    document.getElementById('prov-' + p).style.display = p === v ? '' : 'none';
+  });
+  if (v === 'claude') {
+    onClaudeEmbedChange();
+  } else {
+    var d = EMBED_DEFAULTS[v] || EMBED_DEFAULTS.openai;
+    document.getElementById('embed-tag').textContent = d.model;
+    document.getElementById('embed-dim').textContent = d.dim;
+  }
+  llmOk = false;
+  document.getElementById('btn-next-2').disabled = true;
+  document.getElementById('llm-result').innerHTML = '';
+}
+
+function onClaudeEmbedChange() {
+  var ep = document.getElementById('claude-embed-provider').value;
+  document.getElementById('claude-embed-openai').style.display  = ep === 'openai' ? '' : 'none';
+  document.getElementById('claude-embed-ollama').style.display  = ep === 'ollama' ? '' : 'none';
+  var d = EMBED_DEFAULTS[ep] || EMBED_DEFAULTS.openai;
+  document.getElementById('embed-tag').textContent = d.model;
+  document.getElementById('embed-dim').textContent = d.dim;
+}
+
+async function testLlm() {
+  var btn = document.getElementById('btn-test-llm');
+  var sp  = document.getElementById('llm-spinner');
+  btn.disabled = true;
+  sp.style.display = 'inline-block';
+  document.getElementById('llm-result').innerHTML = '';
+  llmOk = false;
+  document.getElementById('btn-next-2').disabled = true;
+
+  var provider = document.getElementById('llm-provider').value;
+  var payload = { provider: provider, apiKey: '', model: '' };
+
+  switch(provider) {
+    case 'openai':
+      payload.apiKey = document.getElementById('openai-key').value.trim();
+      payload.model  = document.getElementById('openai-model').value;
+      break;
+    case 'azureopenai':
+      payload.apiKey        = document.getElementById('azure-key').value.trim();
+      payload.model         = document.getElementById('azure-deployment').value.trim();
+      payload.azureEndpoint = document.getElementById('azure-endpoint').value.trim();
+      break;
+    case 'gemini':
+      payload.apiKey = document.getElementById('gemini-key').value.trim();
+      payload.model  = document.getElementById('gemini-model').value;
+      break;
+    case 'ollama':
+      payload.ollamaBaseUrl = document.getElementById('ollama-url').value.trim();
+      payload.model         = document.getElementById('ollama-model').value.trim();
+      break;
+    case 'claude':
+      payload.apiKey = document.getElementById('claude-key').value.trim();
+      payload.model  = document.getElementById('claude-model').value;
+      break;
+  }
+
+  try {
+    var res  = await fetch('/api/setup/test-llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    var data = await res.json();
+    if (data.ok) {
+      document.getElementById('llm-result').innerHTML =
+        '<div class="alert alert-success" style="margin-top:.875rem"><svg class="alert-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Connection successful.</div>';
+      llmOk = true;
+      document.getElementById('btn-next-2').disabled = false;
+    } else {
+      showAlert('llm-result', 'error', data.error || 'Connection failed');
+    }
+  } catch(e) {
+    showAlert('llm-result', 'error', 'Request failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    sp.style.display = 'none';
+  }
+}
+
+// ── Step 3: Admin account validation ────────────────────────────────────────
+function validateStep3() {
+  var email   = document.getElementById('admin-email').value.trim();
+  var pwd     = document.getElementById('admin-pwd').value;
+  var confirm = document.getElementById('admin-confirm').value;
+  var org     = document.getElementById('org-name').value.trim();
+
+  var emailOk  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  var lenOk    = pwd.length >= 8;
+  var upperOk  = /[A-Z]/.test(pwd);
+  var digitOk  = /\d/.test(pwd);
+  var specOk   = /[^A-Za-z0-9]/.test(pwd);
+  var matchOk  = pwd === confirm && pwd.length > 0;
+
+  setRule('rule-len',     lenOk);
+  setRule('rule-upper',   upperOk);
+  setRule('rule-digit',   digitOk);
+  setRule('rule-special', specOk);
+
+  document.getElementById('err-email').textContent =
+    email && !emailOk ? 'Enter a valid email address' : '';
+  document.getElementById('err-confirm').textContent =
+    confirm && !matchOk ? 'Passwords do not match' : '';
+
+  document.getElementById('btn-next-3').disabled =
+    !(org && emailOk && lenOk && upperOk && digitOk && specOk && matchOk);
+}
+
+function setRule(id, ok) {
+  var el = document.getElementById(id);
+  el.className = 'pwd-rule' + (ok ? ' ok' : '');
+  var svg = el.querySelector('svg');
+  svg.innerHTML = ok
+    ? '<polyline points="20 6 9 17 4 12" stroke-width="2.5"/>'
+    : '<circle cx="12" cy="12" r="10" stroke-width="2.5"/>';
+}
+
+// ── Step 4: Summary ──────────────────────────────────────────────────────────
+function buildSummary() {
+  var provider = document.getElementById('llm-provider').value;
+  var model    = getLlmModel(provider);
+  var embed;
+  if (provider === 'claude') {
+    var ep = document.getElementById('claude-embed-provider').value;
+    embed = EMBED_DEFAULTS[ep] || EMBED_DEFAULTS.openai;
+  } else {
+    embed = EMBED_DEFAULTS[provider] || EMBED_DEFAULTS.openai;
+  }
+
+  var rows = [
+    ['PostgreSQL',    document.getElementById('pg-host').value + ':' + document.getElementById('pg-port').value],
+    ['Database',      document.getElementById('pg-db').value],
+    ['Redis',         document.getElementById('redis-host').value + ':' + document.getElementById('redis-port').value],
+    ['Qdrant',        document.getElementById('qdrant-host').value + ':' + document.getElementById('qdrant-port').value],
+    ['LLM Provider',  providerLabel(provider)],
+    ['Chat Model',    model],
+    ['Embedding',     embed.model + ' (' + embed.dim + ')'],
+    ['Organization',  document.getElementById('org-name').value],
+    ['Admin Email',   document.getElementById('admin-email').value],
+  ];
+
+  var html = '';
+  rows.forEach(function(r) {
+    html += '<div class="summary-key">' + esc(r[0]) + '</div><div class="summary-val">' + esc(r[1]) + '</div>';
+  });
+  document.getElementById('summary-grid').innerHTML = html;
+}
+
+function getLlmModel(provider) {
+  switch(provider) {
+    case 'openai':      return document.getElementById('openai-model').value;
+    case 'azureopenai': return document.getElementById('azure-deployment').value.trim() || '—';
+    case 'gemini':      return document.getElementById('gemini-model').value;
+    case 'ollama':      return document.getElementById('ollama-model').value.trim() || 'qwen2.5';
+    case 'claude':      return document.getElementById('claude-model').value;
+    default:            return '—';
+  }
+}
+
+function providerLabel(p) {
+  return { openai: 'OpenAI', azureopenai: 'Azure OpenAI', gemini: 'Google Gemini', ollama: 'Ollama', claude: 'Claude (Anthropic)' }[p] || p;
+}
+
+// ── Step 4: Installation ─────────────────────────────────────────────────────
+var PROGRESS_LABELS = {
+  migration: 'Running EF Core Migration',
+  seed:      'Creating admin account',
+  qdrant:    'Initializing vector store',
+  env:       'Writing configuration',
+  complete:  'Setup complete',
+  error:     'Error'
+};
+
+async function startInstall() {
+  document.getElementById('view-summary').style.display = 'none';
+  document.getElementById('view-install').style.display = '';
+
+  var provider = document.getElementById('llm-provider').value;
+
+  var payload = {
+    postgresHost:     document.getElementById('pg-host').value.trim(),
+    postgresPort:     parseInt(document.getElementById('pg-port').value),
+    postgresDb:       document.getElementById('pg-db').value.trim(),
+    postgresUser:     document.getElementById('pg-user').value.trim(),
+    postgresPassword: document.getElementById('pg-pass').value,
+    redisHost:        document.getElementById('redis-host').value.trim(),
+    redisPort:        parseInt(document.getElementById('redis-port').value),
+    qdrantHost:       document.getElementById('qdrant-host').value.trim(),
+    qdrantHttpPort:   parseInt(document.getElementById('qdrant-port').value),
+    llmProvider:      provider,
+    llmApiKey:        provider === 'openai'      ? document.getElementById('openai-key').value.trim()
+                      : provider === 'azureopenai' ? document.getElementById('azure-key').value.trim()
+                      : provider === 'claude'      ? document.getElementById('claude-key').value.trim()
+                      : '',
+    llmChatModel:     getLlmModel(provider),
+    azureEndpoint:    provider === 'azureopenai' ? document.getElementById('azure-endpoint').value.trim() : null,
+    azureDeployment:  provider === 'azureopenai' ? document.getElementById('azure-deployment').value.trim() : null,
+    ollamaBaseUrl:    provider === 'ollama' ? document.getElementById('ollama-url').value.trim() : null,
+    ollamaChatModel:  provider === 'ollama' ? document.getElementById('ollama-model').value.trim() : null,
+    geminiApiKey:     provider === 'gemini' ? document.getElementById('gemini-key').value.trim() : null,
+    embeddingProvider: provider === 'claude' ? document.getElementById('claude-embed-provider').value : '',
+    embeddingModel:    provider === 'claude'
+                        ? (document.getElementById('claude-embed-provider').value === 'openai'
+                            ? 'text-embedding-3-small'
+                            : document.getElementById('claude-embed-ollama-model').value.trim() || 'nomic-embed-text')
+                        : '',
+    embeddingDimensions: provider === 'claude'
+                          ? (document.getElementById('claude-embed-provider').value === 'openai' ? 1536 : 768)
+                          : 0,
+    ollamaEmbeddingModel: provider === 'claude' && document.getElementById('claude-embed-provider').value === 'ollama'
+                            ? document.getElementById('claude-embed-ollama-model').value.trim() || 'nomic-embed-text'
+                            : null,
+    geminiEmbeddingModel: null,
+    embeddingApiKey: provider === 'claude' && document.getElementById('claude-embed-provider').value === 'openai'
+                      ? document.getElementById('claude-embed-openai-key').value.trim()
+                      : null,
+    orgName:       document.getElementById('org-name').value.trim(),
+    adminEmail:    document.getElementById('admin-email').value.trim(),
+    adminPassword: document.getElementById('admin-pwd').value
+  };
+
+  var list = document.getElementById('progress-list');
+  list.innerHTML = '';
+
+  try {
+    var res = await fetch('/api/setup/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    var reader  = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer  = '';
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      var lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (!line.startsWith('data: ')) continue;
+        var raw = line.slice(6).trim();
+        if (!raw) continue;
+        try {
+          var p = JSON.parse(raw);
+          updateProgress(p, list);
+          if (p.step === 'complete' && p.status === 'done') {
+            setTimeout(function() {
+              document.getElementById('view-install').style.display = 'none';
+              document.getElementById('view-done').style.display = '';
+            }, 800);
+          }
+        } catch {}
+      }
+    }
+  } catch(e) {
+    updateProgress({ step: 'error', status: 'failed', message: 'Unexpected error: ' + e.message }, list);
+  }
+}
+
+function updateProgress(p, list) {
+  var existingId = 'prog-' + p.step;
+  var existing   = document.getElementById(existingId);
+  var icon       = '';
+  var cls        = 'progress-item ' + p.status;
+
+  if (p.status === 'running') {
+    icon = '<span class="spinner spinner-sm"></span>';
+  } else if (p.status === 'done') {
+    icon = svgCheck();
+  } else if (p.status === 'failed') {
+    icon = svgX();
+  }
+
+  var label = PROGRESS_LABELS[p.step] || p.step;
+  var html  = '<div class="progress-icon">' + icon + '</div><div class="progress-msg">' + esc(p.message || label) + '</div>';
+
+  if (existing) {
+    existing.className = cls;
+    existing.innerHTML = html;
+  } else {
+    var el = document.createElement('div');
+    el.id = existingId;
+    el.className = cls;
+    el.innerHTML = html;
+    list.appendChild(el);
+  }
+}
+
+// ── Utilities ────────────────────────────────────────────────────────────────
+function showAlert(containerId, type, msg) {
+  var icons = {
+    error:   '<svg class="alert-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    success: '<svg class="alert-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>',
+    info:    '<svg class="alert-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+  };
+  document.getElementById(containerId).innerHTML =
+    '<div class="alert alert-' + type + '" style="margin-top:.875rem">' + (icons[type]||'') + esc(msg) + '</div>';
+}
+
+function svgCheck() {
+  return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+}
+
+function svgX() {
+  return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

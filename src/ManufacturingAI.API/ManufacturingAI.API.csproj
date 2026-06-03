@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>709de9e9-b450-4e37-9149-f9ec75677c82</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <DockerfileContext>..\..</DockerfileContext>
+  </PropertyGroup>
+
+  <ItemGroup>
+	  <PackageReference Include="FluentValidation" Version="12.1.1" />
+	  <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="Hangfire.AspNetCore" Version="1.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.*" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.26" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.*">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.*" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.*" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ManufacturingAI.Core.RAG\ManufacturingAI.Core.RAG.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Infrastructure\ManufacturingAI.Infrastructure.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Services.Ingest\ManufacturingAI.Services.Ingest.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Services.Query\ManufacturingAI.Services.Query.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Services.TestGen\ManufacturingAI.Services.TestGen.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Services.Analytics\ManufacturingAI.Services.Analytics.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Connectors.Folder\ManufacturingAI.Connectors.Folder.csproj" />
+  </ItemGroup>
+
+</Project>

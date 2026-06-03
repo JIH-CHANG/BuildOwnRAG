@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  # Safety net: also verify direct/squash-merged pushes that land on main.
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # 8.0.x provides the net8.0 targeting pack used by the projects;
+          # 9.0.x understands the .slnx solution format (the .NET 8 SDK does not).
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      # The solution is self-contained (no external project references), so we
+      # build the whole thing — API, Setup, Services, Connectors, and tests.
+      - name: Restore
+        run: dotnet restore ManufacturingAI.slnx
+
+      - name: Build
+        run: dotnet build ManufacturingAI.slnx -c Release --no-restore
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/ManufacturingAI.Frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: src/ManufacturingAI.Frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build

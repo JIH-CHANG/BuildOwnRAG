@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PdfPig"                 Version="0.1.*" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.*"   />
+    <PackageReference Include="ClosedXML"              Version="0.*"   />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ManufacturingAI.Core\ManufacturingAI.Core.csproj" />
+  </ItemGroup>
+
+</Project>
