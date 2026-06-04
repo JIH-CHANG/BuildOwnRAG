@@ -1,6 +1,6 @@
 namespace ManufacturingAI.Setup.Models;
 
-internal record TestConnectionsRequest(
+public record TestConnectionsRequest(
     string PostgresHost,
     int PostgresPort,
     string PostgresDb,
@@ -12,11 +12,11 @@ internal record TestConnectionsRequest(
     int QdrantHttpPort
 );
 
-internal record ConnectionResult(string Service, bool Ok, string Hint);
+public record ConnectionResult(string Service, bool Ok, string Hint);
 
-internal record TestConnectionsResponse(List<ConnectionResult> Results);
+public record TestConnectionsResponse(List<ConnectionResult> Results);
 
-internal record TestLlmRequest(
+public record TestLlmRequest(
     string Provider,
     string ApiKey,
     string Model,
@@ -24,9 +24,9 @@ internal record TestLlmRequest(
     string? OllamaBaseUrl = null
 );
 
-internal record LlmTestResult(bool Ok, string Error);
+public record LlmTestResult(bool Ok, string Error);
 
-internal record InstallRequest(
+public record InstallRequest(
     string PostgresHost,
     int PostgresPort,
     string PostgresDb,
@@ -55,6 +55,6 @@ internal record InstallRequest(
     string AdminPassword
 );
 
-internal record InstallProgress(string Step, string Status, string Message);
+public record InstallProgress(string Step, string Status, string Message);
 
-internal record SetupStatusResponse(bool IsCompleted, int Step);
+public record SetupStatusResponse(bool IsCompleted, int Step);
