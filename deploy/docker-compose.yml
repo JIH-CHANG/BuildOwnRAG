@@ -1,0 +1,139 @@
+# BuildOwnRAG — customer deployment compose (pulls published images; no source build).
+# Usage: create a .env next to this file (see README), then:
+#   docker compose --profile setup up -d   # first run: opens the setup wizard on :8081
+#   docker compose up -d                    # normal run after setup
+services:
+
+  # ── Application API ──────────────────────────────────────────
+  app:
+    image: ghcr.io/jih-chang/buildownrag-api:${IMAGE_TAG:-latest}
+    container_name: buildownrag-app
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-buildownrag};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Redis: "redis:6379"
+      Qdrant__Host: qdrant
+      Qdrant__Port: "6334"
+      Jwt__Secret: "${JWT_SECRET}"
+      Jwt__Issuer: "${JWT_ISSUER:-BuildOwnRAG}"
+      Jwt__Audience: "${JWT_AUDIENCE:-BuildOwnRAG}"
+      Encryption__Key: "${ENCRYPTION_KEY}"
+      Encryption__IV: "${ENCRYPTION_IV}"
+      AllowedOrigins: "${ALLOWED_ORIGINS:-*}"
+      # No telemetry collector in the default install; disable OTLP export to avoid
+      # noisy "connection refused" logs. Set a collector endpoint + flip to false to enable.
+      OTEL_SDK_DISABLED: "${OTEL_SDK_DISABLED:-true}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      Llm__Provider: "${LLM_PROVIDER:-Gemini}"
+      Llm__Model: "${LLM_MODEL:-gemini-2.0-flash}"
+      Llm__ApiKey: "${LLM_API_KEY:-}"
+      OpenAI__ApiKey: "${OPENAI_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-${LLM_API_KEY:-}}"
+      GEMINI_CHAT_MODEL: "${GEMINI_CHAT_MODEL:-gemini-2.0-flash}"
+      GEMINI_EMBEDDING_MODEL: "${GEMINI_EMBEDDING_MODEL:-text-embedding-004}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ── First-run Setup Wizard (profile: setup) ──────────────────
+  setup:
+    image: ghcr.io/jih-chang/buildownrag-setup:${IMAGE_TAG:-latest}
+    container_name: buildownrag-setup
+    ports:
+      - "${SETUP_PORT:-8081}:8081"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8081
+      IS_SETUP_COMPLETED: "${IS_SETUP_COMPLETED:-false}"
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-buildownrag};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}"
+      Encryption__Key: "${ENCRYPTION_KEY}"
+      Encryption__IV: "${ENCRYPTION_IV}"
+    volumes:
+      - ./.env:/app/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - setup
+    restart: "no"
+    networks:
+      - backend
+
+  # ── React Frontend (nginx proxies /api -> app:8080) ──────────
+  frontend:
+    image: ghcr.io/jih-chang/buildownrag-frontend:${IMAGE_TAG:-latest}
+    container_name: buildownrag-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ── PostgreSQL (internal only; not exposed to host) ──────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: buildownrag-postgres
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-buildownrag}"
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-buildownrag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ── Qdrant Vector DB (internal only) ─────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: buildownrag-qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ── Redis (internal only; AOF persistence) ───────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: buildownrag-redis
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --appendfsync everysec
+    restart: unless-stopped
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
