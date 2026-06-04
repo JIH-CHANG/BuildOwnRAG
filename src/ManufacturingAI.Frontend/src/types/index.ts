@@ -65,8 +65,8 @@ export interface ChatMessage {
   createdAt: string;
 }
 
-// Retrieval pipeline: Hybrid RAG (Qdrant + BM25) or Markdown (BM25-only, no embeddings).
-export type RetrievalMode = "Hybrid" | "Markdown";
+// Retrieval pipeline: Hybrid RAG (Qdrant + BM25) or Lite (BM25-only, no embeddings).
+export type RetrievalMode = "Hybrid" | "Lite";
 
 export interface Conversation {
   id: string;

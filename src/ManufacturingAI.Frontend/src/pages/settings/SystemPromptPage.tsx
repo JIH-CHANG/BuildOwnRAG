@@ -63,7 +63,7 @@ export function SystemPromptPage() {
         <h2 className="mb-1 text-base font-semibold text-slate-100">System Prompt</h2>
         <p className="text-sm text-slate-400">
           Customize the instructions the assistant follows when answering questions. Applies to
-          both Hybrid and Markdown retrieval modes.
+          both Hybrid and Lite retrieval modes.
         </p>
       </div>
 

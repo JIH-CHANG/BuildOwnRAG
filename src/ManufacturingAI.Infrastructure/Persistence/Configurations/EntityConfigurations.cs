@@ -20,7 +20,13 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
             s.Property(x => x.LLMModel).HasMaxLength(128);
             s.Property(x => x.EmbeddingModel).HasMaxLength(128);
             s.Property(x => x.EmbeddingDimensions).HasDefaultValue(0);
-            s.Property(x => x.RetrievalMode).HasConversion<string>().HasMaxLength(16).HasDefaultValue(RetrievalMode.Hybrid);
+            // Store as string; read legacy "Markdown" rows as Lite (the mode was renamed).
+            s.Property(x => x.RetrievalMode)
+                .HasConversion(
+                    v => v == RetrievalMode.Lite ? "Lite" : "Hybrid",
+                    v => v == "Hybrid" ? RetrievalMode.Hybrid : RetrievalMode.Lite)
+                .HasMaxLength(16)
+                .HasDefaultValue(RetrievalMode.Hybrid);
             s.Property(x => x.SystemPrompt).HasColumnType("text").HasDefaultValue(string.Empty);
         });
     }

@@ -10,16 +10,16 @@ using ManufacturingAI.Infrastructure.Repositories;
 
 namespace ManufacturingAI.Core.RAG.Retrieval;
 
-// BM25-only retrieval for Markdown mode: SQL keyword prefilter → in-memory Lucene BM25 → top K.
+// BM25-only retrieval for Lite mode: SQL keyword prefilter → in-memory Lucene BM25 → top K.
 // No embeddings, no Qdrant.
-public interface IMarkdownRetriever
+public interface ILiteRetriever
 {
     Task<IReadOnlyList<DocumentChunk>> RetrieveAsync(Guid tenantId, string query, CancellationToken ct = default);
 }
 
-public class MarkdownRetriever(
+public class LiteRetriever(
     IDocumentChunkRepository chunkRepository,
-    MarkdownModeOptions options) : IMarkdownRetriever
+    LiteModeOptions options) : ILiteRetriever
 {
     public async Task<IReadOnlyList<DocumentChunk>> RetrieveAsync(
         Guid tenantId, string query, CancellationToken ct = default)

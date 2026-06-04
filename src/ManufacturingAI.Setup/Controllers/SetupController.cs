@@ -6,7 +6,7 @@ namespace ManufacturingAI.Setup.Controllers;
 
 [ApiController]
 [Route("api/setup")]
-internal sealed class SetupController(SetupService setupService) : ControllerBase
+public sealed class SetupController(SetupService setupService) : ControllerBase
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
