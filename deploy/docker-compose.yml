@@ -10,7 +10,15 @@ services:
     container_name: buildownrag-app
     ports:
       - "${APP_PORT:-8080}:8080"
+    # The setup wizard writes a full .env (LLM provider/model/keys, embedding, etc.
+    # in .NET config form, e.g. LLM__PROVIDER). Injecting it directly means anything
+    # the wizard configured reaches the app without per-key mapping.
+    env_file:
+      - .env
     environment:
+      # Infra wiring + boot secrets. These point at the compose service names and
+      # translate the .env's plain names (JWT_SECRET, ...) to .NET config keys, so
+      # they take precedence over env_file for these specific keys.
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-buildownrag};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}"
@@ -26,14 +34,6 @@ services:
       # No telemetry collector in the default install; disable OTLP export to avoid
       # noisy "connection refused" logs. Set a collector endpoint + flip to false to enable.
       OTEL_SDK_DISABLED: "${OTEL_SDK_DISABLED:-true}"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
-      Llm__Provider: "${LLM_PROVIDER:-Gemini}"
-      Llm__Model: "${LLM_MODEL:-gemini-2.0-flash}"
-      Llm__ApiKey: "${LLM_API_KEY:-}"
-      OpenAI__ApiKey: "${OPENAI_API_KEY:-}"
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-${LLM_API_KEY:-}}"
-      GEMINI_CHAT_MODEL: "${GEMINI_CHAT_MODEL:-gemini-2.0-flash}"
-      GEMINI_EMBEDDING_MODEL: "${GEMINI_EMBEDDING_MODEL:-text-embedding-004}"
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,6 +1,7 @@
 # BuildOwnRAG — Install
 
-Self-hosted RAG knowledge platform, run entirely via Docker.
+Self-hosted RAG knowledge platform, run entirely via Docker. A browser-based
+setup wizard does the configuration for you — no hand-editing of secrets.
 
 ## Requirements
 
@@ -11,56 +12,37 @@ Self-hosted RAG knowledge platform, run entirely via Docker.
 
 Download **`docker-compose.yml`** (attached to this release) into a new empty folder, e.g. `buildownrag/`.
 
-## 2. Create a `.env` next to it
+## 2. Create a minimal `.env`
 
-The app needs a few secrets before first boot. Create a file named `.env` in the same folder:
+In the same folder, create a file named `.env` with just a database password
+(the only thing needed before first boot — the wizard generates everything else):
 
 ```ini
-# Pull this release's images (or set to a specific version / "latest")
-IMAGE_TAG=latest
-
-# Ports on the host
-APP_PORT=8080
-FRONTEND_PORT=3000
-SETUP_PORT=8081
-
-# Database
-POSTGRES_DB=buildownrag
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=__CHANGE_ME__
-
-# Secrets — replace with the generated values below
-JWT_SECRET=__CHANGE_ME__
-ENCRYPTION_KEY=__CHANGE_ME__   # must be exactly 32 characters
-ENCRYPTION_IV=__CHANGE_ME__    # must be exactly 16 characters
+POSTGRES_PASSWORD=choose-a-strong-password-here
 ```
 
-Generate the four secrets:
+> Optional: add `IMAGE_TAG=1.2.3` to pin a version, or `APP_PORT` / `FRONTEND_PORT`
+> / `SETUP_PORT` if those ports are taken.
 
-- **Linux / macOS**
-  ```bash
-  echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
-  echo "JWT_SECRET=$(openssl rand -hex 48)"
-  echo "ENCRYPTION_KEY=$(openssl rand -hex 16)"   # 32 chars
-  echo "ENCRYPTION_IV=$(openssl rand -hex 8)"     # 16 chars
-  ```
-- **Windows (PowerShell)**
-  ```powershell
-  function Hex($n){ -join (1..$n | % { '{0:x2}' -f (Get-Random -Max 256) }) }
-  "POSTGRES_PASSWORD=$(Hex 24)"; "JWT_SECRET=$(Hex 48)"; "ENCRYPTION_KEY=$(Hex 16)"; "ENCRYPTION_IV=$(Hex 8)"
-  ```
-
-Paste the printed values into `.env`. (API keys and the admin account are set later in the setup wizard, not here.)
-
-## 3. First run — launches the setup wizard
+## 3. Start with the setup wizard
 
 ```bash
 docker compose --profile setup up -d
 ```
 
-Open the wizard at <http://localhost:8081>, choose your AI provider, paste its API key, and create the admin account.
+Open the wizard at **<http://localhost:8081>** and follow the three steps:
 
-## 4. Restart to apply the config
+1. **Databases** — leave the hosts as `postgres` / `redis` / `qdrant`; for the
+   Postgres password enter **the same value you put in `.env`**. Click *Test*.
+2. **AI provider** — pick OpenAI / Azure / Gemini / Ollama / Claude and paste its
+   API key (the wizard validates it).
+3. **Admin account** — organisation name, admin email and password.
+
+Click **Install**. The wizard runs migrations, creates your admin account,
+initialises the vector store, and writes the full `.env` (JWT and encryption keys
+are generated for you).
+
+## 4. Restart to apply the generated config
 
 ```bash
 docker compose up -d
@@ -68,7 +50,7 @@ docker compose up -d
 
 ## 5. Use it
 
-Open <http://localhost:3000> and log in.
+Open <http://localhost:3000> and log in with the admin account you created.
 
 ---
 
@@ -87,7 +69,8 @@ docker compose down -v                          # wipe ALL data and start clean
 - Your documents, vectors and settings live in Docker named volumes
   (`*_postgres_data`, `*_qdrant_data`, `*_redis_data`) — they survive restarts and updates.
 - PostgreSQL, Redis and Qdrant are internal-only (not exposed to the host).
-- Change ports in `.env` (`FRONTEND_PORT`, `APP_PORT`, `SETUP_PORT`) if they clash.
+- The `app` service is unhealthy until the wizard finishes and you restart in step 4 —
+  that's expected; you only use port 8081 during setup.
 
 | Service      | URL                   |
 | ------------ | --------------------- |
