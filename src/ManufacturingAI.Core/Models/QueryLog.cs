@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ManufacturingAI.Core.Models;
 
 public class QueryLog
@@ -14,4 +16,7 @@ public class QueryLog
     public DateTime CreatedAt { get; set; }
 }
 
+// Serialized as its name ("Positive"/"Negative") so the feedback API binds the
+// string the frontend sends, rather than the default numeric enum value.
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum QueryFeedback { Positive, Negative }

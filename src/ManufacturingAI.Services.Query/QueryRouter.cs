@@ -18,15 +18,15 @@ public class QueryRouter(
             ? await markdown.QueryAsync(request, ct)
             : await hybrid.QueryAsync(request, ct);
 
-    public async IAsyncEnumerable<string> StreamQueryAsync(
+    public async IAsyncEnumerable<QueryStreamEvent> StreamQueryAsync(
         QueryRequest request, [EnumeratorCancellation] CancellationToken ct = default)
     {
         var stream = await IsMarkdownAsync(request.TenantId, ct)
             ? markdown.StreamQueryAsync(request, ct)
             : hybrid.StreamQueryAsync(request, ct);
 
-        await foreach (var token in stream.WithCancellation(ct))
-            yield return token;
+        await foreach (var evt in stream.WithCancellation(ct))
+            yield return evt;
     }
 
     // Feedback applies to logged (Hybrid) queries only.

@@ -52,11 +52,16 @@ export interface QueryResult {
   latencyMs: number;
 }
 
+export type QueryFeedback = "Positive" | "Negative";
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   sources?: QuerySource[];
+  // Set once the answer finishes streaming; identifies the QueryLog for feedback.
+  queryId?: string;
+  feedback?: QueryFeedback;
   createdAt: string;
 }
 

@@ -15,7 +15,7 @@ namespace ManufacturingAI.Services.Query;
 public interface IMarkdownQueryService
 {
     Task<Result<QueryResult>> QueryAsync(QueryRequest request, CancellationToken ct = default);
-    IAsyncEnumerable<string> StreamQueryAsync(QueryRequest request, CancellationToken ct = default);
+    IAsyncEnumerable<QueryStreamEvent> StreamQueryAsync(QueryRequest request, CancellationToken ct = default);
 }
 
 // Markdown (BM25-only) answering: keyword-prefilter + BM25 over Postgres chunks → LLM.
@@ -50,14 +50,22 @@ public class MarkdownQueryService(
         }
     }
 
-    public async IAsyncEnumerable<string> StreamQueryAsync(
+    public async IAsyncEnumerable<QueryStreamEvent> StreamQueryAsync(
         QueryRequest request, [EnumeratorCancellation] CancellationToken ct = default)
     {
         var chunks = await retriever.RetrieveAsync(request.TenantId, request.Question, ct);
         var systemPrompt = await ResolveSystemPromptAsync(request.TenantId, ct);
+
         await foreach (var token in llm.StreamAsync(
             new LLMRequest(systemPrompt, BuildUserPrompt(request.Question, chunks)), ct))
-            yield return token;
+            yield return QueryStreamEvent.OfToken(token);
+
+        var sources = chunks.Select(c => new SourceReference(
+            c.DocumentId, c.Metadata.SourceTitle, c.Metadata.SourceType, c.Metadata.PageNumber, Excerpt(c.Content)))
+            .ToList();
+
+        // Markdown queries are not logged (no QueryLog), so no queryId is emitted.
+        yield return QueryStreamEvent.Completed(sources, Guid.Empty, chunks.Count > 0 ? 0.9 : 0.0);
     }
 
     // Use the tenant's custom instructions when set; otherwise the built-in default.
