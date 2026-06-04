@@ -102,11 +102,13 @@ public class QueryOrchestrator(
         return result;
     }
 
-    public async IAsyncEnumerable<string> StreamQueryAsync(
+    public async IAsyncEnumerable<QueryStreamEvent> StreamQueryAsync(
         QueryRequest request,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        // Retrieval is synchronous; only the LLM generation is streamed.
+        var sw = Stopwatch.StartNew();
+
+        // Retrieval + rerank run synchronously up front; only LLM generation streams.
         var retrieveRequest = new RetrieveRequest(request.TenantId, request.Question, TopK: 10);
         var candidates = await retriever.RetrieveAsync(retrieveRequest, ct);
 
@@ -118,8 +120,37 @@ public class QueryOrchestrator(
         var systemPrompt = BuildSystemPrompt(tenant, context);
         var llmRequest = new LLMRequest(systemPrompt, request.Question, request.History, 0.3, 2048);
 
+        var answer = new StringBuilder();
         await foreach (var chunk in llmService.StreamAsync(llmRequest, ct))
-            yield return chunk;
+        {
+            answer.Append(chunk);
+            yield return QueryStreamEvent.OfToken(chunk);
+        }
+
+        // Confidence and the low-confidence warning mirror the non-streaming path.
+        float topRerankerScore = reranked.Count > 0 ? reranked[0].FusionScore : 0f;
+        double lengthIndicator = Math.Min(answer.Length / 500.0, 1.0);
+        double confidenceScore = topRerankerScore * 0.7 + lengthIndicator * 0.3;
+        bool isFromFallback = confidenceScore < 0.4;
+        if (isFromFallback)
+        {
+            answer.Append(FallbackWarning);
+            yield return QueryStreamEvent.OfToken(FallbackWarning);
+        }
+
+        var sources = BuildSources(reranked);
+
+        // Persist a QueryLog so analytics keeps working for streamed answers too.
+        var result = new QueryResult(
+            Answer: answer.ToString(),
+            ConfidenceScore: confidenceScore,
+            Sources: sources,
+            IsFromCache: false,
+            IsFromFallback: isFromFallback,
+            LatencyMs: sw.ElapsedMilliseconds);
+        var queryId = await SaveQueryLogAsync(request, result, reranked, ComputeHash(request.Question), ct);
+
+        yield return QueryStreamEvent.Completed(sources, queryId, confidenceScore);
     }
 
     private async Task<Tenant> GetTenantCachedAsync(Guid tenantId, CancellationToken ct)
@@ -164,7 +195,7 @@ public class QueryOrchestrator(
                 RelevantExcerpt: c.Content.Length > 200 ? c.Content[..200] + "…" : c.Content);
         }).ToList();
 
-    private async Task SaveQueryLogAsync(
+    private async Task<Guid> SaveQueryLogAsync(
         QueryRequest request,
         QueryResult result,
         List<RetrievedChunk> chunks,
@@ -185,6 +216,7 @@ public class QueryOrchestrator(
         };
 
         await queryLogRepository.AddAsync(log, ct);
+        return log.Id;
     }
 
     private static string ComputeHash(string input)
