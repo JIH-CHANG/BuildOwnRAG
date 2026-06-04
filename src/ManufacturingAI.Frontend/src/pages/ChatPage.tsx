@@ -1,65 +1,76 @@
 import { useState, useRef, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Send, FileText } from "lucide-react";
+import { Send, FileText, ThumbsUp, ThumbsDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button, Spinner } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { chatApi } from "@/api/chat";
 import { getErrorMessage } from "@/api/client";
-import type { ChatMessage, QuerySource } from "@/types";
+import type { ChatMessage, QueryFeedback, QuerySource } from "@/types";
 
 let msgId = 0;
 const nextId = () => String(++msgId);
 
+const EMPTY_GUID = "00000000-0000-0000-0000-000000000000";
+// Feedback targets a logged query; Markdown-mode answers aren't logged (empty id).
+const canGiveFeedback = (queryId?: string): queryId is string =>
+  !!queryId && queryId !== EMPTY_GUID;
+
 export function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  const mutation = useMutation({
-    mutationFn: chatApi.query,
-    onSuccess: (result) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: nextId(),
-          role: "assistant",
-          content: result.answer,
-          sources: result.sources,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
-    },
-    onError: (err) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: nextId(),
-          role: "assistant",
-          content: `Error: ${getErrorMessage(err)}`,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
-    },
-  });
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = () => {
+  // Cancel any in-flight stream if the user leaves the page.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const handleSend = async () => {
     const q = input.trim();
-    if (!q || mutation.isPending) return;
+    if (!q || isStreaming) return;
+
+    // Push the user message plus an empty assistant bubble we'll stream into.
+    const userId = nextId();
+    const assistantId = nextId();
     setMessages((prev) => [
       ...prev,
-      {
-        id: nextId(),
-        role: "user",
-        content: q,
-        createdAt: new Date().toISOString(),
-      },
+      { id: userId, role: "user", content: q, createdAt: new Date().toISOString() },
+      { id: assistantId, role: "assistant", content: "", createdAt: new Date().toISOString() },
     ]);
     setInput("");
-    mutation.mutate(q);
+    setIsStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const patchAssistant = (patch: (m: ChatMessage) => ChatMessage) =>
+      setMessages((prev) => prev.map((m) => (m.id === assistantId ? patch(m) : m)));
+
+    try {
+      await chatApi.streamQuery(
+        q,
+        {
+          onToken: (token) =>
+            patchAssistant((m) => ({ ...m, content: m.content + token })),
+          onComplete: ({ sources, queryId }) =>
+            patchAssistant((m) => ({ ...m, sources, queryId })),
+        },
+        controller.signal,
+      );
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      const message = `Error: ${getErrorMessage(err)}`;
+      patchAssistant((m) => ({
+        ...m,
+        content: m.content ? `${m.content}\n\n${message}` : message,
+      }));
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      setIsStreaming(false);
+    }
   };
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -68,6 +79,27 @@ export function ChatPage() {
       handleSend();
     }
   };
+
+  const handleFeedback = async (message: ChatMessage, feedback: QueryFeedback) => {
+    if (!canGiveFeedback(message.queryId)) return;
+    const next = message.feedback === feedback ? undefined : feedback;
+    const setFeedback = (value: QueryFeedback | undefined) =>
+      setMessages((prev) =>
+        prev.map((m) => (m.id === message.id ? { ...m, feedback: value } : m)),
+      );
+
+    setFeedback(next); // optimistic
+    if (!next) return; // un-toggling: nothing to send
+    try {
+      await chatApi.feedback(message.queryId, next);
+    } catch {
+      setFeedback(message.feedback); // revert on failure
+    }
+  };
+
+  // The bubble currently being streamed into is always the last message.
+  const lastMsg = messages[messages.length - 1];
+  const streamingId = isStreaming && lastMsg?.role === "assistant" ? lastMsg.id : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -89,14 +121,13 @@ export function ChatPage() {
           ) : (
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
               {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  streaming={msg.id === streamingId}
+                  onFeedback={handleFeedback}
+                />
               ))}
-              {mutation.isPending && (
-                <div className="flex items-center gap-2 text-sm text-slate-400">
-                  <Spinner size={14} />
-                  Thinking…
-                </div>
-              )}
             </div>
           )}
           <div ref={bottomRef} />
@@ -120,7 +151,7 @@ export function ChatPage() {
           />
           <Button
             onClick={handleSend}
-            disabled={!input.trim() || mutation.isPending}
+            disabled={!input.trim() || isStreaming}
             className="h-11 w-11 shrink-0 !p-0"
             aria-label="Send"
           >
@@ -132,8 +163,18 @@ export function ChatPage() {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  streaming = false,
+  onFeedback,
+}: {
+  message: ChatMessage;
+  streaming?: boolean;
+  onFeedback: (message: ChatMessage, feedback: QueryFeedback) => void;
+}) {
   const isUser = message.role === "user";
+  const showFeedback =
+    !isUser && !streaming && canGiveFeedback(message.queryId);
   return (
     <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
       <div
@@ -158,13 +199,67 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           )}
         >
           {message.content}
+          {streaming && (
+            <span className="ml-0.5 inline-block animate-pulse text-accent">▍</span>
+          )}
         </div>
 
         {message.sources && message.sources.length > 0 && (
           <SourceList sources={message.sources} />
         )}
+
+        {showFeedback && (
+          <div className="flex items-center gap-1 pl-1">
+            <FeedbackButton
+              label="Helpful"
+              active={message.feedback === "Positive"}
+              activeClass="text-emerald-400"
+              onClick={() => onFeedback(message, "Positive")}
+            >
+              <ThumbsUp size={14} />
+            </FeedbackButton>
+            <FeedbackButton
+              label="Not helpful"
+              active={message.feedback === "Negative"}
+              activeClass="text-rose-400"
+              onClick={() => onFeedback(message, "Negative")}
+            >
+              <ThumbsDown size={14} />
+            </FeedbackButton>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function FeedbackButton({
+  label,
+  active,
+  activeClass,
+  onClick,
+  children,
+}: {
+  label: string;
+  active: boolean;
+  activeClass: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      className={cn(
+        "rounded-md p-1.5 text-slate-500 transition-colors hover:bg-surface-muted hover:text-slate-300",
+        active && activeClass,
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

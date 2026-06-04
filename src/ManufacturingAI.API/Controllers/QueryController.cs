@@ -16,6 +16,9 @@ public record FeedbackRequest(QueryFeedback Feedback);
 [Authorize(Policy = "CanQuery")]
 public class QueryController(IQueryService queryService) : ControllerBase
 {
+    // camelCase to match the frontend's QueryStreamEvent / QuerySource shapes.
+    private static readonly JsonSerializerOptions SseJsonOptions = new(JsonSerializerDefaults.Web);
+
     [HttpPost]
     public async Task<ActionResult<ApiResponse<QueryResult>>> Query(
         [FromBody] QueryRequest request,
@@ -31,7 +34,8 @@ public class QueryController(IQueryService queryService) : ControllerBase
             : BadRequest(this.ApiFail(result.Error!));
     }
 
-    // SSE endpoint — yields LLM tokens as text/event-stream.
+    // SSE endpoint — yields answer tokens, then a terminal event carrying the
+    // cited sources, as text/event-stream.
     // Frontend reads with: fetch(..., { method: 'POST' }) + ReadableStream
     [HttpPost("stream")]
     public async Task StreamQuery([FromBody] QueryRequest request, CancellationToken ct)
@@ -44,9 +48,9 @@ public class QueryController(IQueryService queryService) : ControllerBase
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.Append("X-Accel-Buffering", "no");
 
-        await foreach (var chunk in queryService.StreamQueryAsync(req, ct))
+        await foreach (var evt in queryService.StreamQueryAsync(req, ct))
         {
-            var line = $"data: {JsonSerializer.Serialize(chunk)}\n\n";
+            var line = $"data: {JsonSerializer.Serialize(evt, SseJsonOptions)}\n\n";
             await Response.WriteAsync(line, ct);
             await Response.Body.FlushAsync(ct);
         }
