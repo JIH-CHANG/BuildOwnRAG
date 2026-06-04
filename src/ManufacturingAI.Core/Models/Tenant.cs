@@ -26,7 +26,7 @@ public class TenantSettings
     public string EmbeddingModel { get; set; } = string.Empty;
     // Recorded at collection creation; migration is triggered when this changes
     public int EmbeddingDimensions { get; set; }
-    // Retrieval pipeline: Hybrid (Qdrant + BM25) or Markdown (BM25-only, no embeddings/Qdrant)
+    // Retrieval pipeline: Hybrid (Qdrant + BM25) or Lite (BM25-only, no embeddings/Qdrant)
     public RetrievalMode RetrievalMode { get; set; } = RetrievalMode.Hybrid;
     // Custom system-prompt instructions; empty = use PromptDefaults.SystemPrompt.
     public string SystemPrompt { get; set; } = string.Empty;
@@ -34,4 +34,4 @@ public class TenantSettings
 
 public enum TenantPlan { Free, Trial, Starter, Professional, Enterprise }
 
-public enum RetrievalMode { Hybrid, Markdown }
+public enum RetrievalMode { Hybrid, Lite }

@@ -54,7 +54,7 @@ public class DocumentsController(
             return NotFound(this.ApiFail("Document not found."));
 
         // Clean up everything tied to the document so a later re-upload starts fresh:
-        // Qdrant vectors, Postgres chunks (BM25/Markdown source), and the version-hash sync
+        // Qdrant vectors, Postgres chunks (BM25/Lite source), and the version-hash sync
         // bookkeeping (otherwise dedup would skip re-ingesting the recreated document).
         await vectorStore.DeleteByDocumentIdAsync($"tenant_{tenantId}", id, ct);
         await chunkRepository.DeleteByDocumentIdAsync(id, ct);

@@ -52,8 +52,8 @@ export function AiModelPage() {
     }
   }, [settings]);
 
-  // Markdown mode is BM25-only — embeddings are not used, so hide all embedding settings.
-  const isMarkdown = retrievalMode === "Markdown";
+  // Lite mode is BM25-only — embeddings are not used, so hide all embedding settings.
+  const isLite = retrievalMode === "Lite";
   const needsSeparateEmbedding = NEEDS_SEPARATE_EMBEDDING.includes(provider as AiProvider);
   // The provider that will actually serve embeddings
   const effectiveEmbeddingProvider = needsSeparateEmbedding ? embeddingProvider : provider;
@@ -71,7 +71,7 @@ export function AiModelPage() {
   const { data: embeddingModels = [], isFetching: embeddingModelsFetching } = useQuery({
     queryKey: ["provider-models", effectiveEmbeddingProvider, "embedding"],
     queryFn: () => tenantApi.getProviderModels(effectiveEmbeddingProvider as string, "embedding"),
-    enabled: !isMarkdown && !!effectiveEmbeddingProvider && showEmbeddingModelSelector && effectiveEmbeddingProvider !== "AzureOpenAI",
+    enabled: !isLite && !!effectiveEmbeddingProvider && showEmbeddingModelSelector && effectiveEmbeddingProvider !== "AzureOpenAI",
     staleTime: 5 * 60 * 1000,
   });
 
@@ -171,10 +171,10 @@ export function AiModelPage() {
           onChange={(e) => setRetrievalMode(e.target.value as RetrievalMode)}
         >
           <option value="Hybrid">Hybrid RAG (Qdrant + BM25)</option>
-          <option value="Markdown">Markdown (BM25 only, no embeddings)</option>
+          <option value="Lite">Lite (BM25 only, no embeddings)</option>
         </Select>
         <p className="mt-1 text-xs text-slate-500">
-          Markdown mode skips the embedding model and Qdrant — documents are chunked into Postgres
+          Lite mode skips the embedding model and Qdrant — documents are chunked into Postgres
           and answered via keyword/BM25 search.
         </p>
 
@@ -229,7 +229,7 @@ export function AiModelPage() {
       )}
 
       {/* Embedding Provider — shown when LLM provider has no embeddings (e.g. Groq) */}
-      {!isMarkdown && needsSeparateEmbedding && (
+      {!isLite && needsSeparateEmbedding && (
         <div>
           <Select
             label="Embedding Provider"
@@ -248,7 +248,7 @@ export function AiModelPage() {
       )}
 
       {/* Embedding Model */}
-      {!isMarkdown && showEmbeddingModelSelector && (
+      {!isLite && showEmbeddingModelSelector && (
         isAzureEmbedding ? (
           <div>
             <label htmlFor="embedding-input" className="mb-1.5 block text-sm font-medium text-slate-300">
@@ -300,7 +300,7 @@ export function AiModelPage() {
       </div>
 
       {/* Embedding API Key — only shown when using a different embedding provider */}
-      {!isMarkdown && needsSeparateEmbedding && embeddingProvider && (
+      {!isLite && needsSeparateEmbedding && embeddingProvider && (
         <div>
           <label htmlFor="embedding-api-key" className="mb-1.5 block text-sm font-medium text-slate-300">
             Embedding API Key
