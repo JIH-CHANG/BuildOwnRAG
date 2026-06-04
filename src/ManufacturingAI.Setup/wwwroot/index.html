@@ -498,11 +498,29 @@ select option{background:#1a1d27}
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
         <div class="done-title">Setup Complete!</div>
-        <div class="done-sub">BuildOwnRAG is ready. Click below to open the main application.</div>
-        <a href="http://localhost:8080" class="btn btn-primary" style="text-decoration:none;margin:0 auto">
+        <div class="done-sub">Two quick steps before you can sign in.</div>
+
+        <ol style="text-align:left;max-width:540px;margin:0 auto 1.25rem;line-height:1.65;color:var(--dim);padding-left:1.25rem">
+          <li style="margin-bottom:.75rem">
+            <strong style="color:var(--text)">Restart the app</strong> so it loads the configuration that was
+            just saved. In the folder that has your <code style="background:var(--surface-2);padding:.1rem .35rem;border-radius:4px">docker-compose.yml</code>, run:
+            <pre style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:.6rem .8rem;margin:.5rem 0 0;overflow-x:auto;color:var(--text);font-family:ui-monospace,Consolas,monospace;font-size:.85rem">docker compose up -d</pre>
+          </li>
+          <li>
+            <strong style="color:var(--text)">Open the app</strong> at
+            <a href="http://localhost:3000" style="color:var(--primary)">http://localhost:3000</a>
+            and sign in with the admin account you just created.
+          </li>
+        </ol>
+
+        <a href="http://localhost:3000" class="btn btn-primary" style="text-decoration:none;margin:0 auto">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           Open BuildOwnRAG &rarr;
         </a>
+        <div style="font-size:.75rem;color:var(--muted);margin-top:.85rem;max-width:540px;margin-left:auto;margin-right:auto">
+          The app is on port 3000 (or the <code style="background:var(--surface-2);padding:.05rem .3rem;border-radius:4px">FRONTEND_PORT</code> you set).
+          Port 8080 is the API and isn't meant to be opened directly.
+        </div>
       </div>
     </div>
   </div>
@@ -522,7 +540,7 @@ var llmOk = false;
     const r = await fetch('/api/setup/status');
     const d = await r.json();
     if (d.isCompleted) {
-      window.location.href = 'http://localhost:8080';
+      window.location.href = 'http://localhost:3000';
     }
   } catch {}
 })();
