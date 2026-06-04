@@ -10,6 +10,7 @@ public static class DependencyInjection
     {
         // Register each parser as IDocumentParser so they are injected as IEnumerable<IDocumentParser>
         services.AddSingleton<IDocumentParser, TxtParser>();
+        services.AddSingleton<IDocumentParser, MarkdownParser>();
         services.AddSingleton<IDocumentParser, CsvParser>();
         services.AddSingleton<IDocumentParser, WordParser>();
         services.AddSingleton<IDocumentParser, ExcelParser>();

@@ -46,7 +46,7 @@ public class DocumentChunkRepository(ApplicationDbContext db) : Repository<Docum
         => await DbSet.Where(c => c.DocumentId == documentId).ExecuteDeleteAsync(ct);
 
     // Coarse keyword prefilter: rows whose Content ILIKEs ANY query term. GIN index optional;
-    // this caps the candidate set before in-memory BM25 ranking (Markdown mode).
+    // this caps the candidate set before in-memory BM25 ranking (Lite mode).
     public async Task<IReadOnlyList<DocumentChunk>> SearchByKeywordAsync(
         Guid tenantId, string query, int limit, CancellationToken ct = default)
     {

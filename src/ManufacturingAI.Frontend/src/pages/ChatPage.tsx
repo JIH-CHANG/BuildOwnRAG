@@ -10,7 +10,7 @@ let msgId = 0;
 const nextId = () => String(++msgId);
 
 const EMPTY_GUID = "00000000-0000-0000-0000-000000000000";
-// Feedback targets a logged query; Markdown-mode answers aren't logged (empty id).
+// Feedback targets a logged query by id; both Hybrid and Lite modes persist logs.
 const canGiveFeedback = (queryId?: string): queryId is string =>
   !!queryId && queryId !== EMPTY_GUID;
 

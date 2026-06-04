@@ -5,8 +5,9 @@ namespace ManufacturingAI.Core.Parser.Parsers;
 
 public class TxtParser : IDocumentParser
 {
+    // Markdown MIME types are handled by MarkdownParser (heading-aware sectioning).
     public bool CanParse(string mimeType) =>
-        mimeType is "text/plain" or "text/txt" or "text/markdown" or "text/x-markdown";
+        mimeType is "text/plain" or "text/txt";
 
     public async Task<ParsedDocument> ParseAsync(Stream stream, string fileName, CancellationToken ct = default)
     {

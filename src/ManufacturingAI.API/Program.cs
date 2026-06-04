@@ -54,11 +54,11 @@ try
     builder.Services.AddTestGenServices();
     builder.Services.AddScoped<ITokenService, TokenService>();
 
-    // Retrieval pipelines: QueryRouter picks Hybrid (QueryService) or Markdown/BM25 per tenant setting.
+    // Retrieval pipelines: QueryRouter picks Hybrid (QueryService) or Lite/BM25 per tenant setting.
     builder.Services.AddSingleton(
-        config.GetSection("MarkdownMode").Get<MarkdownModeOptions>() ?? new MarkdownModeOptions());
+        config.GetSection("LiteMode").Get<LiteModeOptions>() ?? new LiteModeOptions());
     builder.Services.AddScoped<QueryService>();
-    builder.Services.AddScoped<IMarkdownQueryService, MarkdownQueryService>();
+    builder.Services.AddScoped<ILiteQueryService, LiteQueryService>();
     builder.Services.AddScoped<IQueryService, QueryRouter>();
     builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
