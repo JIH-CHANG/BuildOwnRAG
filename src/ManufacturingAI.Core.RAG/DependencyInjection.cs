@@ -13,7 +13,7 @@ public static class DependencyInjection
     {
         services.AddSingleton<IDocumentChunker, SemanticChunker>();
         services.AddScoped<IHybridRetriever, HybridRetriever>();
-        services.AddScoped<IMarkdownRetriever, MarkdownRetriever>();
+        services.AddScoped<ILiteRetriever, LiteRetriever>();
         services.AddScoped<IQueryOrchestrator, QueryOrchestrator>();
 
         // Free tier: cosine similarity rerank (sorts by VectorScore already returned by Qdrant)

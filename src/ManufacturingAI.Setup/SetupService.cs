@@ -5,6 +5,7 @@ using System.Text.Json;
 using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
 using ManufacturingAI.Infrastructure.Persistence;
+using ManufacturingAI.Infrastructure.Repositories;
 using ManufacturingAI.Infrastructure.VectorStore;
 using ManufacturingAI.Setup.Models;
 using Microsoft.EntityFrameworkCore;
@@ -18,7 +19,7 @@ using BcryptNet = BCrypt.Net.BCrypt;
 
 namespace ManufacturingAI.Setup;
 
-internal sealed class SetupService
+public sealed class SetupService
 {
     // ── Connection test ───────────────────────────────────────────────────────
 
@@ -168,6 +169,7 @@ internal sealed class SetupService
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
         services.AddDbContext<ApplicationDbContext>(opt =>
             opt.UseNpgsql(state.PostgresConnectionString));
+        services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddSingleton<QdrantClient>(_ =>
             new QdrantClient(state.QdrantHost, state.QdrantGrpcPort));
         services.AddSingleton<IVectorStore, QdrantVectorStore>();

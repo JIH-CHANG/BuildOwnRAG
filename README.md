@@ -11,7 +11,7 @@ LLM/embedding providers (OpenAI, Azure OpenAI, Google Gemini, Ollama, Groq, Anth
 
 - Two retrieval modes, selectable per tenant:
   - Hybrid (default): Qdrant vector search + Lucene BM25 + Reciprocal Rank Fusion.
-  - Markdown: BM25-only over PostgreSQL, no embedding model and no Qdrant required.
+  - Lite: BM25-only over PostgreSQL, no embedding model and no Qdrant required.
 - Pluggable LLM and embedding providers, switchable at runtime from the UI.
 - File ingestion for PDF, Word, Excel, CSV, plain text, and Markdown.
 - Background ingestion via Hangfire and a Redis Stream queue; incremental sync by content hash.
@@ -25,7 +25,7 @@ This section is intentionally explicit so the repository does not overstate what
 
 ### Done (implemented and working)
 
-- [x] Hybrid and Markdown retrieval pipelines
+- [x] Hybrid and Lite retrieval pipelines
 - [x] Multi-provider LLM/embedding routing (OpenAI, Azure OpenAI, Gemini, Ollama, Groq, Claude)
 - [x] Document upload and ingestion for PDF, Word, Excel, CSV, plain text, and Markdown
 - [x] Folder connector with incremental (content-hash) sync and optional file-watching
@@ -69,15 +69,15 @@ This section is intentionally explicit so the repository does not overstate what
 ManufacturingAI/
   src/
     ManufacturingAI.Core/             Domain models, interfaces, configuration
-    ManufacturingAI.Core.RAG/         Chunking, retrieval (Hybrid + Markdown), reranking
-    ManufacturingAI.Core.Parser/      File parsers: PDF / Word / Excel / CSV / TXT / Markdown
+    ManufacturingAI.Core.RAG/         Chunking, retrieval (Hybrid + Lite), reranking
+    ManufacturingAI.Core.Parser/      File parsers: PDF / Word / Excel / CSV / TXT / Markdown (heading-aware)
     ManufacturingAI.Core.Connectors/  Connector abstractions
     ManufacturingAI.Infrastructure/   EF Core + PostgreSQL, Qdrant, Redis, LLM/Embedding providers
     ManufacturingAI.API/              ASP.NET Core Web API (port 8080)
     ManufacturingAI.Setup/            First-run install wizard (port 8081)
     ManufacturingAI.Frontend/         React factory UI (dev 5173 / docker 3000)
     ManufacturingAI.Services.Ingest/  Ingestion service and Hangfire jobs
-    ManufacturingAI.Services.Query/    QueryRouter, QueryService, MarkdownQueryService
+    ManufacturingAI.Services.Query/    QueryRouter, QueryService, LiteQueryService
     ManufacturingAI.Services.Analytics/ Tenant analytics
     ManufacturingAI.Services.TestGen/   Test-script generation
     ManufacturingAI.Connectors.*/     Folder, SharePoint, Confluence, GoogleDrive, Arena
@@ -164,12 +164,14 @@ Core indexing flow (`IngestDocumentAsync`):
 3.  Mark SyncState = Running.
 4.  ParserFactory.ParseAsync(mimeType): pick a parser by MIME
     (PDF / Word / Excel / CSV / TXT / Markdown) and produce a ParsedDocument.
+    Markdown is parsed heading-aware: each ATX heading starts a section with a
+    breadcrumb title (Parent > Child); fenced code blocks are preserved verbatim.
 5.  SemanticChunker.Chunk(): section-first split, Tiktoken token counting,
     defaults MaxTokens=512 and Overlap=50, sentence-boundary splitting for long sections.
 6.  Save or update the Document (Status = Processing).
 
     Retrieval-mode branch:
-      - Markdown mode: skip steps 7-9 entirely (no embedding, no Qdrant).
+      - Lite mode: skip steps 7-9 entirely (no embedding, no Qdrant).
       - Hybrid mode:
         7. Batch-embed the chunks (provider chosen by EmbeddingProviderRouter).
         8. EnsureDimensionsCompatibleAsync: create the collection on first ingest,
@@ -177,7 +179,7 @@ Core indexing flow (`IngestDocumentAsync`):
         9. Upsert vectors into Qdrant (payload: documentId / tenantId / chunkIndex / sourceType).
            On re-index, the old vectors for the document are deleted first.
 
-10. Write DocumentChunk rows to PostgreSQL (old chunks deleted first). In Markdown mode
+10. Write DocumentChunk rows to PostgreSQL (old chunks deleted first). In Lite mode
     VectorId is left empty; in Hybrid mode it maps to the Qdrant point.
 11. Document.Status = Indexed, SyncState = Completed, invalidate the document-list cache.
     On failure: SyncState = Failed and Document.Status = Failed, with the error recorded.
@@ -227,10 +229,10 @@ Hybrid retrieval (`src/ManufacturingAI.Core.RAG/Retrieval/HybridRetriever.cs`):
 
 A Hybrid query makes exactly two external API calls: one embedding call and one LLM call.
 
-### Markdown mode (BM25-only)
+### Lite mode (BM25-only)
 
-Code: `src/ManufacturingAI.Core.RAG/Retrieval/MarkdownRetriever.cs` and
-`src/ManufacturingAI.Services.Query/MarkdownQueryService.cs`
+Code: `src/ManufacturingAI.Core.RAG/Retrieval/LiteRetriever.cs` and
+`src/ManufacturingAI.Services.Query/LiteQueryService.cs`
 
 A lightweight pipeline that needs no embedding model and no Qdrant. It is useful for providers
 without embeddings (such as Groq), or for keyword-heavy document sets.
@@ -244,12 +246,12 @@ without embeddings (such as Groq), or for keyword-heavy document sets.
 3. LLMService.CompleteAsync answers only from the selected chunks (a streaming variant exists).
 ```
 
-A Markdown query makes exactly one external API call (the LLM). Tunables live under
-`MarkdownMode` in `appsettings.json` (`TopK`, `PrefilterLimit`).
+A Lite query makes exactly one external API call (the LLM). Tunables live under
+`LiteMode` in `appsettings.json` (`TopK`, `PrefilterLimit`).
 
 ### Mode comparison
 
-| Aspect          | Markdown mode                                 | Hybrid mode (default)                      |
+| Aspect          | Lite mode                                     | Hybrid mode (default)                      |
 | --------------- | --------------------------------------------- | ------------------------------------------ |
 | Ingest          | parse -> chunk -> PostgreSQL                   | parse -> chunk -> embed -> Qdrant + PostgreSQL |
 | Query           | ILIKE prefilter -> BM25 -> LLM                 | Qdrant + BM25 + RRF -> rerank -> LLM        |
@@ -278,7 +280,7 @@ Notes:
   Changing the embedding dimension requires rebuilding the tenant's Qdrant collection and
   re-indexing every document.
 - Groq and Claude have no native embeddings. In Hybrid mode, select a separate embedding
-  provider (for example OpenAI or Gemini). Alternatively use Markdown mode, which needs no
+  provider (for example OpenAI or Gemini). Alternatively use Lite mode, which needs no
   embeddings at all.
 
 ---
@@ -294,8 +296,8 @@ Key settings in `src/ManufacturingAI.API/appsettings.json` (override with enviro
 | Qdrant:Host / Qdrant:Port    | Qdrant gRPC endpoint                          |
 | Llm:Provider / Llm:Model     | Default LLM provider and model                |
 | Embedding:Provider           | Default embedding provider                    |
-| MarkdownMode:TopK            | Chunks passed to the LLM in Markdown mode     |
-| MarkdownMode:PrefilterLimit  | Max candidate chunks before BM25 ranking      |
+| LiteMode:TopK                | Chunks passed to the LLM in Lite mode         |
+| LiteMode:PrefilterLimit      | Max candidate chunks before BM25 ranking      |
 | Jwt:Secret / Issuer / Audience | JWT signing and validation                  |
 | Encryption:Key / IV          | AES key/IV for encrypted connector settings   |
 

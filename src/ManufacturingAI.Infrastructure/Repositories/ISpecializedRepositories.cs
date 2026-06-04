@@ -14,7 +14,7 @@ public interface IDocumentChunkRepository : IRepository<DocumentChunk>
 {
     Task<IEnumerable<DocumentChunk>> GetByDocumentIdAsync(Guid documentId, CancellationToken ct = default);
     Task<IEnumerable<DocumentChunk>> GetByIdsAsync(Guid tenantId, IEnumerable<string> vectorIds, CancellationToken ct = default);
-    // Coarse keyword prefilter (ILIKE on any term) for Markdown mode — candidates for in-memory BM25.
+    // Coarse keyword prefilter (ILIKE on any term) for Lite mode — candidates for in-memory BM25.
     Task<IReadOnlyList<DocumentChunk>> SearchByKeywordAsync(Guid tenantId, string query, int limit, CancellationToken ct = default);
     // Bulk-delete all chunks for a document (used when deleting/re-ingesting a document).
     Task<int> DeleteByDocumentIdAsync(Guid documentId, CancellationToken ct = default);

@@ -70,3 +70,29 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  release:
+    name: Publish compose to Releases
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write   # create the GitHub Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pin compose to this release's image tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Default IMAGE_TAG to this version so the downloaded compose pulls it
+          # (users can still override IMAGE_TAG in their .env).
+          sed -i "s/:\${IMAGE_TAG:-latest}/:\${IMAGE_TAG:-${VERSION}}/g" deploy/docker-compose.yml
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body_path: deploy/README.md
+          files: deploy/docker-compose.yml

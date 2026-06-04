@@ -12,19 +12,20 @@ using Microsoft.Extensions.Logging;
 
 namespace ManufacturingAI.Services.Query;
 
-public interface IMarkdownQueryService
+public interface ILiteQueryService
 {
     Task<Result<QueryResult>> QueryAsync(QueryRequest request, CancellationToken ct = default);
     IAsyncEnumerable<QueryStreamEvent> StreamQueryAsync(QueryRequest request, CancellationToken ct = default);
 }
 
-// Markdown (BM25-only) answering: keyword-prefilter + BM25 over Postgres chunks → LLM.
+// Lite (BM25-only) answering: keyword-prefilter + BM25 over Postgres chunks → LLM.
 // One external call total (the LLM); no embeddings, no Qdrant.
-public class MarkdownQueryService(
-    IMarkdownRetriever retriever,
+public class LiteQueryService(
+    ILiteRetriever retriever,
     ILLMService llm,
     IRepository<Tenant> tenantRepository,
-    ILogger<MarkdownQueryService> logger) : IMarkdownQueryService
+    IQueryLogRepository queryLogRepository,
+    ILogger<LiteQueryService> logger) : ILiteQueryService
 {
     public async Task<Result<QueryResult>> QueryAsync(QueryRequest request, CancellationToken ct = default)
     {
@@ -36,16 +37,15 @@ public class MarkdownQueryService(
             var resp = await llm.CompleteAsync(
                 new LLMRequest(systemPrompt, BuildUserPrompt(request.Question, chunks)), ct);
 
-            var sources = chunks.Select(c => new SourceReference(
-                c.DocumentId, c.Metadata.SourceTitle, c.Metadata.SourceType, c.Metadata.PageNumber, Excerpt(c.Content)))
-                .ToList();
+            var confidence = chunks.Count > 0 ? 0.9 : 0.0;
+            await SaveQueryLogAsync(request, resp.Content, chunks, confidence, sw.ElapsedMilliseconds, ct);
 
             return Result<QueryResult>.Ok(new QueryResult(
-                resp.Content, chunks.Count > 0 ? 0.9 : 0.0, sources, false, resp.IsFromFallback, sw.ElapsedMilliseconds));
+                resp.Content, confidence, BuildSources(chunks), false, resp.IsFromFallback, sw.ElapsedMilliseconds));
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Markdown query failed.");
+            logger.LogError(ex, "Lite query failed.");
             return Result<QueryResult>.Fail(ex.Message);
         }
     }
@@ -53,19 +53,24 @@ public class MarkdownQueryService(
     public async IAsyncEnumerable<QueryStreamEvent> StreamQueryAsync(
         QueryRequest request, [EnumeratorCancellation] CancellationToken ct = default)
     {
+        var sw = Stopwatch.StartNew();
         var chunks = await retriever.RetrieveAsync(request.TenantId, request.Question, ct);
         var systemPrompt = await ResolveSystemPromptAsync(request.TenantId, ct);
 
+        var answer = new StringBuilder();
         await foreach (var token in llm.StreamAsync(
             new LLMRequest(systemPrompt, BuildUserPrompt(request.Question, chunks)), ct))
+        {
+            answer.Append(token);
             yield return QueryStreamEvent.OfToken(token);
+        }
 
-        var sources = chunks.Select(c => new SourceReference(
-            c.DocumentId, c.Metadata.SourceTitle, c.Metadata.SourceType, c.Metadata.PageNumber, Excerpt(c.Content)))
-            .ToList();
+        // Persist a QueryLog so the streamed answer can receive feedback and feed analytics.
+        var confidence = chunks.Count > 0 ? 0.9 : 0.0;
+        var queryId = await SaveQueryLogAsync(
+            request, answer.ToString(), chunks, confidence, sw.ElapsedMilliseconds, ct);
 
-        // Markdown queries are not logged (no QueryLog), so no queryId is emitted.
-        yield return QueryStreamEvent.Completed(sources, Guid.Empty, chunks.Count > 0 ? 0.9 : 0.0);
+        yield return QueryStreamEvent.Completed(BuildSources(chunks), queryId, confidence);
     }
 
     // Use the tenant's custom instructions when set; otherwise the built-in default.
@@ -92,4 +97,34 @@ public class MarkdownQueryService(
 
     private static string Excerpt(string content) =>
         content.Length <= 200 ? content : content[..200];
+
+    private static List<SourceReference> BuildSources(IReadOnlyList<DocumentChunk> chunks)
+        => chunks.Select(c => new SourceReference(
+            c.DocumentId, c.Metadata.SourceTitle, c.Metadata.SourceType, c.Metadata.PageNumber, Excerpt(c.Content)))
+            .ToList();
+
+    private async Task<Guid> SaveQueryLogAsync(
+        QueryRequest request,
+        string answer,
+        IReadOnlyList<DocumentChunk> chunks,
+        double confidenceScore,
+        long latencyMs,
+        CancellationToken ct)
+    {
+        var log = new QueryLog
+        {
+            Id = Guid.NewGuid(),
+            TenantId = request.TenantId,
+            UserId = request.UserId,
+            Question = request.Question,
+            Answer = answer,
+            SourceChunkIds = chunks.Select(c => c.Id.ToString()).ToList(),
+            ConfidenceScore = confidenceScore,
+            LatencyMs = latencyMs,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await queryLogRepository.AddAsync(log, ct);
+        return log.Id;
+    }
 }

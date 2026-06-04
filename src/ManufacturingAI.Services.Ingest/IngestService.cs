@@ -156,13 +156,13 @@ public class IngestService(
                 await documentRepository.UpdateAsync(document, ct);
 
             // 6. Retrieval mode decides whether we embed + index into Qdrant.
-            //    Markdown mode = BM25-only → skip Embedding model + Qdrant entirely.
-            var markdownMode = await IsMarkdownModeAsync(tenantId, ct);
+            //    Lite mode = BM25-only → skip Embedding model + Qdrant entirely.
+            var liteMode = await IsLiteModeAsync(tenantId, ct);
 
-            // VectorId per chunk — empty in Markdown mode (no Qdrant point).
+            // VectorId per chunk — empty in Lite mode (no Qdrant point).
             var chunkVectorIds = chunks.Select(_ => string.Empty).ToList();
 
-            if (!markdownMode)
+            if (!liteMode)
             {
                 // ── Hybrid: batch embed → version-aware Qdrant collection ──
                 var contents = chunks.Select(c => c.Content).ToList();
@@ -311,10 +311,10 @@ public class IngestService(
         };
     }
 
-    private async Task<bool> IsMarkdownModeAsync(Guid tenantId, CancellationToken ct)
+    private async Task<bool> IsLiteModeAsync(Guid tenantId, CancellationToken ct)
     {
         var tenant = await tenantRepository.GetByIdAsync(tenantId, ct);
-        return tenant?.Settings.RetrievalMode == RetrievalMode.Markdown;
+        return tenant?.Settings.RetrievalMode == RetrievalMode.Lite;
     }
 
     private static async Task<string> ComputeHashAsync(Stream stream, CancellationToken ct)
