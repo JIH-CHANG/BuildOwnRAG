@@ -20,9 +20,11 @@ public sealed class EmbeddingProviderRouter(
         {
             // EmbeddingProvider takes precedence; falls back to LLM Provider.
             // This allows Groq (LLM-only) to use a different provider for embeddings.
-            var provider = runtime.EmbeddingProvider.NullIfEmpty()
+            // Keyed providers are registered lower-case; normalize so a saved
+            // value like "Gemini" still resolves the "gemini" service.
+            var provider = (runtime.EmbeddingProvider.NullIfEmpty()
                 ?? runtime.Provider.NullIfEmpty()
-                ?? _defaultProvider;
+                ?? _defaultProvider).ToLowerInvariant();
 
             if (string.IsNullOrEmpty(provider))
                 throw new InvalidOperationException(

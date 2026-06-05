@@ -18,14 +18,11 @@ interface NavItem {
 export function Sidebar() {
   const { user, logout } = useAuthStore();
   const isAdmin = user?.role === "TenantAdmin";
-  const isPro = user?.plan === "Pro";
 
   const navItems: NavItem[] = [
     { to: "/chat", icon: <MessageSquare size={18} />, label: "Chat" },
     { to: "/documents", icon: <FileText size={18} />, label: "Documents" },
-    ...(isAdmin && isPro
-      ? [{ to: "/analytics", icon: <BarChart2 size={18} />, label: "Analytics" }]
-      : []),
+    { to: "/analytics", icon: <BarChart2 size={18} />, label: "Analytics" },
     ...(isAdmin
       ? [{ to: "/settings", icon: <Settings size={18} />, label: "Settings" }]
       : []),

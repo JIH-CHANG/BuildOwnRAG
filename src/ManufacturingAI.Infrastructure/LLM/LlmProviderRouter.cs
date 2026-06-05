@@ -22,7 +22,9 @@ public sealed class LlmProviderRouter(
     {
         get
         {
-            var provider = runtime.Provider.NullIfEmpty() ?? _defaultProvider;
+            // Keyed providers are registered lower-case; normalize so a saved
+            // value like "Gemini" still resolves the "gemini" service.
+            var provider = (runtime.Provider.NullIfEmpty() ?? _defaultProvider).ToLowerInvariant();
             if (string.IsNullOrEmpty(provider))
                 throw new InvalidOperationException(
                     "No LLM provider configured. Go to Settings → AI Model and select a provider.");
