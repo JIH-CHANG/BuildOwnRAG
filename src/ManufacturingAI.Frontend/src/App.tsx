@@ -4,6 +4,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { LoginPage } from "@/pages/LoginPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { DocumentsPage } from "@/pages/DocumentsPage";
+import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { SettingsLayout } from "@/pages/settings/SettingsLayout";
 import { AiModelPage } from "@/pages/settings/AiModelPage";
 import { SystemPromptPage } from "@/pages/settings/SystemPromptPage";
@@ -26,6 +27,7 @@ export default function App() {
         <Route index element={<Navigate to="/chat" replace />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="documents" element={<DocumentsPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
 
         <Route
           path="settings"
