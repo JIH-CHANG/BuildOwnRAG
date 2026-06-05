@@ -39,6 +39,11 @@ server {\n\
         try_files $uri $uri/ /index.html;\n\
     }\n\
 \n\
+    # index.html must never be cached, or clients keep loading stale JS bundles\n\
+    location = /index.html {\n\
+        add_header Cache-Control "no-cache, no-store, must-revalidate";\n\
+    }\n\
+\n\
     location ~* \\.(js|css|woff2?|png|svg|ico)$ {\n\
         expires 1y;\n\
         add_header Cache-Control "public, immutable";\n\
