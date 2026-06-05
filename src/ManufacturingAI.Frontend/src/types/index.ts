@@ -173,3 +173,41 @@ export interface SyncStatusResult {
   runningJobs: number;
   connectors: ConnectorSyncStatus[];
 }
+
+// ── Analytics ────────────────────────────────────────────────────────────────
+
+export type AnalyticsRange = "today" | "week" | "month";
+
+export interface AnalyticsOverview {
+  totalQueries: number;
+  positiveFeedbackRate: number;
+  negativeFeedbackRate: number;
+  totalDocuments: number;
+  indexedDocuments: number;
+  failedDocuments: number;
+  averageLatencyMs: number;
+  averageConfidenceScore: number;
+}
+
+export interface TopQuery {
+  question: string;
+  count: number;
+  averageConfidenceScore: number;
+  positiveRate: number;
+}
+
+export interface ConfidenceBucket {
+  range: string;
+  count: number;
+  percentage: number;
+}
+
+export interface ConfidenceDistribution {
+  buckets: ConfidenceBucket[];
+}
+
+// date is a DateOnly serialized as "2026-06-05".
+export interface DailyQueryCount {
+  date: string;
+  count: number;
+}
