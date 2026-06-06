@@ -239,17 +239,21 @@ public sealed class SetupService
         if (seedErr is not null) { yield return new InstallProgress("seed", "failed", seedErr); yield break; }
         yield return new InstallProgress("seed", "done", "Admin account created");
 
-        // Step 3 — Qdrant collection
+        // Step 3 — Qdrant collection (skipped when no embedding provider is configured)
         yield return new InstallProgress("qdrant", "running", "Initializing vector store...");
         string? qdrantErr = null;
-        try
+        if (state.EmbeddingDimensions > 0)
         {
-            var vectorSvc = scope.ServiceProvider.GetRequiredService<ITenantVectorService>();
-            await vectorSvc.InitializeCollectionAsync(tenantId, state.EmbeddingDimensions);
+            try
+            {
+                var vectorSvc = scope.ServiceProvider.GetRequiredService<ITenantVectorService>();
+                await vectorSvc.InitializeCollectionAsync(tenantId, state.EmbeddingDimensions);
+            }
+            catch (Exception ex) { qdrantErr = ex.Message; }
+            if (qdrantErr is not null) { yield return new InstallProgress("qdrant", "failed", qdrantErr); yield break; }
         }
-        catch (Exception ex) { qdrantErr = ex.Message; }
-        if (qdrantErr is not null) { yield return new InstallProgress("qdrant", "failed", qdrantErr); yield break; }
-        yield return new InstallProgress("qdrant", "done", "Vector store ready");
+        yield return new InstallProgress("qdrant", "done",
+            state.EmbeddingDimensions > 0 ? "Vector store ready" : "Vector store skipped — configure AI provider in Settings");
 
         // Step 4 — Write .env
         yield return new InstallProgress("env", "running", "Writing configuration...");
@@ -299,7 +303,7 @@ public sealed class SetupService
         };
 
         if (state.LlmProvider == "gemini")
-            state.LlmApiKey = "";
+            state.LlmApiKey = state.GeminiApiKey;
 
         ApplyEmbeddingDefaults(state, req);
         return state;
