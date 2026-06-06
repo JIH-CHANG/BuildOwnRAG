@@ -194,7 +194,7 @@ public class TenantSettingsController(
     [HttpGet("settings/ollama-models")]
     public async Task<ActionResult<ApiResponse<IEnumerable<OllamaModelResponse>>>> GetOllamaModels(CancellationToken ct)
     {
-        var baseUrl = config["Ollama:BaseUrl"] ?? "http://ollama:11434";
+        var baseUrl = config["LLM:OllamaBaseUrl"] ?? "http://localhost:11434";
         var client = httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(5);
 
@@ -378,7 +378,7 @@ public class TenantSettingsController(
 
     private async Task<IEnumerable<string>> FetchOllamaModelsInternalAsync(CancellationToken ct)
     {
-        var baseUrl = config["Ollama:BaseUrl"] ?? "http://ollama:11434";
+        var baseUrl = config["LLM:OllamaBaseUrl"] ?? "http://localhost:11434";
         try
         {
             var client = httpClientFactory.CreateClient();

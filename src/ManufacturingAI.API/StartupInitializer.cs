@@ -242,17 +242,10 @@ internal static class StartupInitializer
             var configProvider = (NullIfEmpty(cfg["Llm:Provider"]) ?? "openai").ToLowerInvariant();
             var configModel    = NullIfEmpty(cfg["Llm:Model"]) ?? string.Empty;
 
-            // If admin has never saved an API key via UI, treat the DB settings
-            // as the defaults (possibly the old seed) and prefer the env config instead.
-            var hasDbKey = !string.IsNullOrEmpty(rawApiKey);
-
-            var provider = hasDbKey
-                ? NullIfEmpty(tenant.Settings.LLMProvider?.ToLowerInvariant()) ?? configProvider
-                : configProvider;
-
-            var model = hasDbKey
-                ? NullIfEmpty(tenant.Settings.LLMModel) ?? configModel
-                : NullIfEmpty(configModel) ?? tenant.Settings.LLMModel;
+            // Trust DB values when present — keyless providers (e.g. Ollama) have no API key
+            // but are still valid. Fall back to env config only when DB has no value set.
+            var provider = NullIfEmpty(tenant.Settings.LLMProvider?.ToLowerInvariant()) ?? configProvider;
+            var model    = NullIfEmpty(tenant.Settings.LLMModel) ?? configModel;
 
             var embeddingModel    = NullIfEmpty(tenant.Settings.EmbeddingModel)    ?? string.Empty;
             var embeddingProvider = NullIfEmpty(tenant.Settings.EmbeddingProvider) ?? string.Empty;
