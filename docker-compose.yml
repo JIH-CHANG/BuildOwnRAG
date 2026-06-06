@@ -27,13 +27,19 @@ services:
       AllowedOrigins: "${ALLOWED_ORIGINS:-*}"
       LicenseServer__Url: "${LICENSE_SERVER_URL:-}"
       LicenseServer__Key: "${LICENSE_KEY:-}"
+      # Optional dev convenience: set INIT_ADMIN_EMAIL + INIT_ADMIN_PASSWORD in .env to
+      # auto-seed an admin on first boot and skip the wizard. Left empty by default so the
+      # setup wizard owns admin creation and the credentials entered there take effect
+      # (otherwise the app pre-seeds and the wizard's account would be ignored).
       INIT_COMPANY_NAME: "${INIT_COMPANY_NAME:-BuildOwnRAG Demo}"
-      INIT_ADMIN_EMAIL: "${INIT_ADMIN_EMAIL:-admin@example.com}"
-      INIT_ADMIN_PASSWORD: "${INIT_ADMIN_PASSWORD:-Admin@1234}"
+      INIT_ADMIN_EMAIL: "${INIT_ADMIN_EMAIL:-}"
+      INIT_ADMIN_PASSWORD: "${INIT_ADMIN_PASSWORD:-}"
       Llm__Provider: "${LLM_PROVIDER:-Gemini}"
       Llm__Model: "${LLM_MODEL:-gemini-2.0-flash}"
       Llm__ApiKey: "${LLM_API_KEY:-}"
       LLM__OllamaBaseUrl: "${LLM_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      # How long Ollama keeps a model loaded after a request ("10m", "1h", "-1" = forever, "0" = unload now)
+      LLM__OllamaKeepAlive: "${LLM_OLLAMA_KEEP_ALIVE:-10m}"
       OpenAI__ApiKey: "${OPENAI_API_KEY:-}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-${LLM_API_KEY:-}}"
       GEMINI_CHAT_MODEL: "${GEMINI_CHAT_MODEL:-gemini-2.0-flash}"
