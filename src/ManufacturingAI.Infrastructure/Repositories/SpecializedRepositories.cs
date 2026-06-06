@@ -178,6 +178,14 @@ public class QueryLogRepository(ApplicationDbContext db) : Repository<QueryLog>(
             .OrderBy(q => q.CreatedAt)
             .ToListAsync(ct);
 
+    // Most-recent-first within the range, capped at top. Backs the Analytics query inspector.
+    public async Task<IEnumerable<QueryLog>> GetRecentAsync(Guid tenantId, DateTime from, DateTime to, int top, CancellationToken ct = default)
+        => await DbSet
+            .Where(q => q.TenantId == tenantId && q.CreatedAt >= from && q.CreatedAt <= to)
+            .OrderByDescending(q => q.CreatedAt)
+            .Take(top)
+            .ToListAsync(ct);
+
     public async Task<Result> UpdateFeedbackAsync(Guid id, QueryFeedback feedback, CancellationToken ct = default)
     {
         try
