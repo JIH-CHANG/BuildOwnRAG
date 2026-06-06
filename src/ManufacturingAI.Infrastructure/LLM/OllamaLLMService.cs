@@ -10,12 +10,16 @@ public class OllamaLLMService : ILLMService
 {
     private readonly OllamaApiClient _client;
     private readonly string _defaultModel;
+    private readonly string _keepAlive;
     private readonly LlmRuntimeConfig _runtime;
 
     public OllamaLLMService(IConfiguration config, LlmRuntimeConfig runtime)
     {
         var baseUrl = config["LLM:OllamaBaseUrl"] ?? "http://localhost:11434";
         _defaultModel = config["LLM:OllamaChatModel"] ?? "qwen2.5";
+        // How long Ollama keeps the model loaded after a request. "10m" avoids a cold
+        // reload on every question; "-1" keeps it loaded forever; "0" unloads immediately.
+        _keepAlive = config["LLM:OllamaKeepAlive"].NullIfEmpty() ?? "10m";
         _runtime = runtime;
         _client = new OllamaApiClient(new Uri(baseUrl));
     }
@@ -39,7 +43,8 @@ public class OllamaLLMService : ILLMService
         {
             Model = Model,
             Stream = true,
-            Messages = BuildMessages(request)
+            Messages = BuildMessages(request),
+            KeepAlive = _keepAlive
         };
 
         await foreach (var chunk in _client.ChatAsync(chatRequest, ct))

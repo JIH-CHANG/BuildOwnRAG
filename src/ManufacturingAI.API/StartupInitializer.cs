@@ -134,11 +134,13 @@ internal static class StartupInitializer
 
     // ── Step 4: Seed default data ────────────────────────────────
 
-    private static async Task<(string Email, bool IsCustom)> SeedDefaultDataAsync(
+    private static async Task<(string? Email, bool IsCustom)> SeedDefaultDataAsync(
         ApplicationDbContext db, IConfiguration config, ILogger logger)
     {
-        var adminEmail = config["INIT_ADMIN_EMAIL"] ?? "admin@manufacturingai.com";
-        var isCustom = config["INIT_ADMIN_EMAIL"] is not null;
+        var initEmail = config["INIT_ADMIN_EMAIL"];
+        var initPassword = config["INIT_ADMIN_PASSWORD"];
+        var isCustom = !string.IsNullOrWhiteSpace(initEmail);
+        var adminEmail = isCustom ? initEmail! : "admin@manufacturingai.com";
 
         if (await db.Tenants.AnyAsync())
         {
@@ -160,8 +162,18 @@ internal static class StartupInitializer
             return (adminEmail, isCustom);
         }
 
+        // No tenant yet. Only auto-seed when admin credentials are explicitly provided
+        // (a dev convenience). Otherwise leave creation to the setup wizard so the
+        // credentials entered there are authoritative and never raced/overwritten.
+        if (string.IsNullOrWhiteSpace(initEmail) || string.IsNullOrWhiteSpace(initPassword))
+        {
+            logger.LogInformation(
+                "Seed skipped: no INIT_ADMIN_EMAIL/INIT_ADMIN_PASSWORD configured — run the setup wizard to create the admin account");
+            return (null, false);
+        }
+
         var companyName = config["INIT_COMPANY_NAME"] ?? "ManufacturingAI Demo";
-        var adminPassword = config["INIT_ADMIN_PASSWORD"] ?? "Admin@1234";
+        var adminPassword = initPassword!;
 
         var tenant = new Tenant
         {
@@ -265,9 +277,8 @@ internal static class StartupInitializer
 
     // ── Step 6: Startup banner ───────────────────────────────────
 
-    private static void PrintBanner(IConfiguration config, string adminEmail, bool isCustom)
+    private static void PrintBanner(IConfiguration config, string? adminEmail, bool isCustom)
     {
-        var passwordDisplay = isCustom ? "(custom)" : "Admin@1234";
         var port = ExtractPort(config["ASPNETCORE_URLS"] ?? "http://+:8080");
 
         const string h = "══════════════════════════════════════════";
@@ -277,9 +288,19 @@ internal static class StartupInitializer
         Console.WriteLine($"║{"  URL    : http://localhost:" + port,-42}║");
         Console.WriteLine($"║{"  Swagger: http://localhost:" + port + "/swagger",-42}║");
         Console.WriteLine($"╠{h}╣");
-        Console.WriteLine($"║{"  Account: " + adminEmail,-42}║");
-        Console.WriteLine($"║{"  Password: " + passwordDisplay,-42}║");
-        Console.WriteLine($"║{"  !! Change password after first login !!",-42}║");
+        if (adminEmail is null)
+        {
+            Console.WriteLine($"║{"  No admin account yet.",-42}║");
+            Console.WriteLine($"║{"  Run the setup wizard to create one:",-42}║");
+            Console.WriteLine($"║{"    http://localhost:8081",-42}║");
+        }
+        else
+        {
+            var passwordDisplay = isCustom ? "(custom)" : "Admin@1234";
+            Console.WriteLine($"║{"  Account: " + adminEmail,-42}║");
+            Console.WriteLine($"║{"  Password: " + passwordDisplay,-42}║");
+            Console.WriteLine($"║{"  !! Change password after first login !!",-42}║");
+        }
         Console.WriteLine($"╚{h}╝");
     }
 
