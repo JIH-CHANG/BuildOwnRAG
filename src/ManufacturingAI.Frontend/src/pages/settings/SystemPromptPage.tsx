@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { RotateCcw } from "lucide-react";
 import { Button, Skeleton, ToastContainer } from "@/components/ui";
@@ -15,16 +15,9 @@ export function SystemPromptPage() {
     queryFn: tenantApi.getSystemPrompt,
   });
 
-  // The effective prompt shown in the editor: the custom one if set, else the default.
-  const [text, setText] = useState("");
-  const [initialized, setInitialized] = useState(false);
-
-  useEffect(() => {
-    if (settings && !initialized) {
-      setText(settings.systemPrompt || settings.defaultPrompt);
-      setInitialized(true);
-    }
-  }, [settings, initialized]);
+  // null = use server value (custom prompt if set, else default); non-null = user override
+  const [textOverride, setTextOverride] = useState<string | null>(null);
+  const text = textOverride ?? settings?.systemPrompt ?? settings?.defaultPrompt ?? "";
 
   const saveMut = useMutation({
     // Sending the default text (or empty) resets the tenant back to the built-in default.
@@ -83,7 +76,7 @@ export function SystemPromptPage() {
         <textarea
           id="system-prompt"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => setTextOverride(e.target.value)}
           rows={14}
           spellCheck={false}
           className="w-full resize-y rounded-md border border-surface-border bg-surface px-3 py-2 font-mono text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -105,14 +98,14 @@ export function SystemPromptPage() {
         </Button>
         <Button
           variant="ghost"
-          onClick={() => setText(settings.defaultPrompt)}
+          onClick={() => setTextOverride(settings.defaultPrompt)}
           disabled={matchesDefault}
         >
           <RotateCcw size={15} className="mr-1.5" />
           Reset to default
         </Button>
         {isDirty && (
-          <Button variant="ghost" onClick={() => setText(effective)}>
+          <Button variant="ghost" onClick={() => setTextOverride(null)}>
             Cancel
           </Button>
         )}

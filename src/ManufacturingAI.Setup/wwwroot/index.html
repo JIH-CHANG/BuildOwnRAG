@@ -406,6 +406,7 @@ select option{background:#1a1d27}
         </button>
         <div class="actions-right">
           <button class="btn btn-ghost" onclick="goStep(1)">&lsaquo; Back</button>
+          <button class="btn btn-ghost" onclick="skipAiSetup()" title="Configure AI provider later in app Settings">Skip for now</button>
           <button class="btn btn-primary" id="btn-next-2" disabled onclick="goStep(3)">Next &rsaquo;</button>
         </div>
       </div>
@@ -533,6 +534,7 @@ select option{background:#1a1d27}
 var currentStep = 1;
 var connectionsOk = false;
 var llmOk = false;
+var aiSkipped = false;
 
 // ── Boot: check if already installed ────────────────────────────────────────
 (async function() {
@@ -631,7 +633,13 @@ var EMBED_DEFAULTS = {
   ollama:      { model: 'nomic-embed-text',        dim: '768D' }
 };
 
+function skipAiSetup() {
+  aiSkipped = true;
+  goStep(3);
+}
+
 function onProviderChange() {
+  aiSkipped = false;
   var v = document.getElementById('llm-provider').value;
   ['openai','azureopenai','gemini','ollama','claude'].forEach(function(p) {
     document.getElementById('prov-' + p).style.display = p === v ? '' : 'none';
@@ -770,9 +778,9 @@ function buildSummary() {
     ['Database',      document.getElementById('pg-db').value],
     ['Redis',         document.getElementById('redis-host').value + ':' + document.getElementById('redis-port').value],
     ['Qdrant',        document.getElementById('qdrant-host').value + ':' + document.getElementById('qdrant-port').value],
-    ['LLM Provider',  providerLabel(provider)],
-    ['Chat Model',    model],
-    ['Embedding',     embed.model + ' (' + embed.dim + ')'],
+    ['LLM Provider',  aiSkipped ? 'Not configured (set up in Settings)' : providerLabel(provider)],
+    ['Chat Model',    aiSkipped ? '—' : model],
+    ['Embedding',     aiSkipped ? '—' : embed.model + ' (' + embed.dim + ')'],
     ['Organization',  document.getElementById('org-name').value],
     ['Admin Email',   document.getElementById('admin-email').value],
   ];
@@ -825,31 +833,32 @@ async function startInstall() {
     redisPort:        parseInt(document.getElementById('redis-port').value),
     qdrantHost:       document.getElementById('qdrant-host').value.trim(),
     qdrantHttpPort:   parseInt(document.getElementById('qdrant-port').value),
-    llmProvider:      provider,
-    llmApiKey:        provider === 'openai'      ? document.getElementById('openai-key').value.trim()
-                      : provider === 'azureopenai' ? document.getElementById('azure-key').value.trim()
-                      : provider === 'claude'      ? document.getElementById('claude-key').value.trim()
+    llmProvider:      aiSkipped ? '' : provider,
+    llmApiKey:        aiSkipped ? ''
+                      : provider === 'openai'       ? document.getElementById('openai-key').value.trim()
+                      : provider === 'azureopenai'  ? document.getElementById('azure-key').value.trim()
+                      : provider === 'claude'        ? document.getElementById('claude-key').value.trim()
                       : '',
-    llmChatModel:     getLlmModel(provider),
-    azureEndpoint:    provider === 'azureopenai' ? document.getElementById('azure-endpoint').value.trim() : null,
-    azureDeployment:  provider === 'azureopenai' ? document.getElementById('azure-deployment').value.trim() : null,
-    ollamaBaseUrl:    provider === 'ollama' ? document.getElementById('ollama-url').value.trim() : null,
-    ollamaChatModel:  provider === 'ollama' ? document.getElementById('ollama-model').value.trim() : null,
-    geminiApiKey:     provider === 'gemini' ? document.getElementById('gemini-key').value.trim() : null,
-    embeddingProvider: provider === 'claude' ? document.getElementById('claude-embed-provider').value : '',
-    embeddingModel:    provider === 'claude'
+    llmChatModel:     aiSkipped ? '' : getLlmModel(provider),
+    azureEndpoint:    !aiSkipped && provider === 'azureopenai' ? document.getElementById('azure-endpoint').value.trim() : null,
+    azureDeployment:  !aiSkipped && provider === 'azureopenai' ? document.getElementById('azure-deployment').value.trim() : null,
+    ollamaBaseUrl:    !aiSkipped && provider === 'ollama' ? document.getElementById('ollama-url').value.trim() : null,
+    ollamaChatModel:  !aiSkipped && provider === 'ollama' ? document.getElementById('ollama-model').value.trim() : null,
+    geminiApiKey:     !aiSkipped && provider === 'gemini' ? document.getElementById('gemini-key').value.trim() : null,
+    embeddingProvider: !aiSkipped && provider === 'claude' ? document.getElementById('claude-embed-provider').value : '',
+    embeddingModel:    !aiSkipped && provider === 'claude'
                         ? (document.getElementById('claude-embed-provider').value === 'openai'
                             ? 'text-embedding-3-small'
                             : document.getElementById('claude-embed-ollama-model').value.trim() || 'nomic-embed-text')
                         : '',
-    embeddingDimensions: provider === 'claude'
+    embeddingDimensions: !aiSkipped && provider === 'claude'
                           ? (document.getElementById('claude-embed-provider').value === 'openai' ? 1536 : 768)
                           : 0,
-    ollamaEmbeddingModel: provider === 'claude' && document.getElementById('claude-embed-provider').value === 'ollama'
+    ollamaEmbeddingModel: !aiSkipped && provider === 'claude' && document.getElementById('claude-embed-provider').value === 'ollama'
                             ? document.getElementById('claude-embed-ollama-model').value.trim() || 'nomic-embed-text'
                             : null,
     geminiEmbeddingModel: null,
-    embeddingApiKey: provider === 'claude' && document.getElementById('claude-embed-provider').value === 'openai'
+    embeddingApiKey: !aiSkipped && provider === 'claude' && document.getElementById('claude-embed-provider').value === 'openai'
                       ? document.getElementById('claude-embed-openai-key').value.trim()
                       : null,
     orgName:       document.getElementById('org-name').value.trim(),
