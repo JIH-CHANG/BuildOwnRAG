@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, AlertTriangle } from "lucide-react";
 import { Button, Select, Skeleton, ToastContainer } from "@/components/ui";
@@ -31,30 +31,27 @@ export function AiModelPage() {
     queryFn: tenantApi.getAiSettings,
   });
 
-  const [provider, setProvider] = useState<AiProvider | "">("");
-  const [model, setModel] = useState("");
-  const [embeddingProvider, setEmbeddingProvider] = useState<AiProvider | "">("");
-  const [embeddingModel, setEmbeddingModel] = useState("");
+  // null = use server value; non-null = user override
+  // For model/embeddingModel: "" means "auto-select first available when models load"
+  const [providerOverride, setProviderOverride] = useState<AiProvider | null>(null);
+  const [modelOverride, setModelOverride] = useState<string | null>(null);
+  const [embeddingProviderOverride, setEmbeddingProviderOverride] = useState<AiProvider | null>(null);
+  const [embeddingModelOverride, setEmbeddingModelOverride] = useState<string | null>(null);
+  const [retrievalModeOverride, setRetrievalModeOverride] = useState<RetrievalMode | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [embeddingApiKey, setEmbeddingApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [showEmbeddingKey, setShowEmbeddingKey] = useState(false);
-  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("Hybrid");
 
-  // Initialise from server on first load
-  useEffect(() => {
-    if (settings && provider === "") {
-      setProvider(settings.provider);
-      setModel(settings.model);
-      setEmbeddingProvider(settings.embeddingProvider ?? settings.provider);
-      setEmbeddingModel(settings.embeddingModel ?? "");
-      setRetrievalMode(settings.retrievalMode ?? "Hybrid");
-    }
-  }, [settings]);
+  // Derive form values: user override takes precedence; fall back to server state
+  const provider = providerOverride ?? settings?.provider ?? "";
+  const retrievalMode = retrievalModeOverride ?? settings?.retrievalMode ?? "Hybrid";
 
   // Lite mode is BM25-only — embeddings are not used, so hide all embedding settings.
   const isLite = retrievalMode === "Lite";
   const needsSeparateEmbedding = NEEDS_SEPARATE_EMBEDDING.includes(provider as AiProvider);
+
+  const embeddingProvider = embeddingProviderOverride ?? settings?.embeddingProvider ?? settings?.provider ?? "";
   // The provider that will actually serve embeddings
   const effectiveEmbeddingProvider = needsSeparateEmbedding ? embeddingProvider : provider;
 
@@ -66,6 +63,11 @@ export function AiModelPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // modelOverride === null → use server value; "" → auto-select first available model
+  const model = modelOverride === null
+    ? (settings?.model ?? "")
+    : (modelOverride || chatModels[0] || "");
+
   // Embedding model list
   const showEmbeddingModelSelector = EMBEDDING_CAPABLE.includes(effectiveEmbeddingProvider as AiProvider);
   const { data: embeddingModels = [], isFetching: embeddingModelsFetching } = useQuery({
@@ -75,15 +77,10 @@ export function AiModelPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Auto-select first chat model on provider switch
-  useEffect(() => {
-    if (model === "" && chatModels.length > 0) setModel(chatModels[0]);
-  }, [chatModels]);
-
-  // Auto-select first embedding model on embedding provider switch
-  useEffect(() => {
-    if (embeddingModel === "" && embeddingModels.length > 0) setEmbeddingModel(embeddingModels[0]);
-  }, [embeddingModels]);
+  // embeddingModelOverride === null → use server value; "" → auto-select first available
+  const embeddingModel = embeddingModelOverride === null
+    ? (settings?.embeddingModel ?? "")
+    : (embeddingModelOverride || embeddingModels[0] || "");
 
   const saveMut = useMutation({
     mutationFn: () => {
@@ -139,18 +136,17 @@ export function AiModelPage() {
     retrievalMode !== settings.retrievalMode;
 
   const handleProviderChange = (next: AiProvider) => {
-    setProvider(next);
-    setModel("");
-    // If the new provider supports embeddings natively, use it; otherwise keep current embedding provider
+    setProviderOverride(next);
+    setModelOverride(""); // "" triggers auto-select when chatModels load
     if (EMBEDDING_CAPABLE.includes(next)) {
-      setEmbeddingProvider(next);
-      setEmbeddingModel("");
+      setEmbeddingProviderOverride(next);
+      setEmbeddingModelOverride(""); // "" triggers auto-select
     }
   };
 
   const handleEmbeddingProviderChange = (next: AiProvider) => {
-    setEmbeddingProvider(next);
-    setEmbeddingModel("");
+    setEmbeddingProviderOverride(next);
+    setEmbeddingModelOverride(""); // "" triggers auto-select
   };
 
   return (
@@ -168,7 +164,7 @@ export function AiModelPage() {
           label="Retrieval Mode"
           id="retrieval-mode-select"
           value={retrievalMode}
-          onChange={(e) => setRetrievalMode(e.target.value as RetrievalMode)}
+          onChange={(e) => setRetrievalModeOverride(e.target.value as RetrievalMode)}
         >
           <option value="Hybrid">Hybrid RAG (Qdrant + BM25)</option>
           <option value="Lite">Lite (BM25 only, no embeddings)</option>
@@ -207,7 +203,7 @@ export function AiModelPage() {
           <label htmlFor="model-input" className="mb-1.5 block text-sm font-medium text-slate-300">
             Deployment Name
           </label>
-          <input id="model-input" type="text" value={model} onChange={(e) => setModel(e.target.value)}
+          <input id="model-input" type="text" value={model} onChange={(e) => setModelOverride(e.target.value)}
             placeholder="e.g. gpt-4o-mini"
             className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
           <p className="mt-1 text-xs text-slate-500">Enter your Azure OpenAI deployment name.</p>
@@ -217,7 +213,7 @@ export function AiModelPage() {
           label={chatModelsFetching ? "Model (loading…)" : "Model"}
           id="model-select"
           value={model}
-          onChange={(e) => setModel(e.target.value)}
+          onChange={(e) => setModelOverride(e.target.value)}
           disabled={chatModelsFetching}
         >
           {chatModelsFetching && <option value="">Loading models…</option>}
@@ -255,7 +251,7 @@ export function AiModelPage() {
               Embedding Deployment Name
             </label>
             <input id="embedding-input" type="text" value={embeddingModel}
-              onChange={(e) => setEmbeddingModel(e.target.value)}
+              onChange={(e) => setEmbeddingModelOverride(e.target.value)}
               placeholder="e.g. text-embedding-3-small"
               className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
@@ -264,7 +260,7 @@ export function AiModelPage() {
             label={embeddingModelsFetching ? "Embedding Model (loading…)" : "Embedding Model"}
             id="embedding-select"
             value={embeddingModel}
-            onChange={(e) => setEmbeddingModel(e.target.value)}
+            onChange={(e) => setEmbeddingModelOverride(e.target.value)}
             disabled={embeddingModelsFetching}
           >
             {embeddingModelsFetching && <option value="">Loading models…</option>}
@@ -276,28 +272,27 @@ export function AiModelPage() {
         )
       )}
 
-      {/* API Key */}
-      <div>
-        <label htmlFor="api-key" className="mb-1.5 block text-sm font-medium text-slate-300">
-          API Key
-          {settings.apiKeySet && (
-            <span className="ml-2 text-xs font-normal text-slate-500">current: {settings.apiKeyMasked}</span>
-          )}
-        </label>
-        <div className="relative">
-          <input id="api-key" type={showKey ? "text" : "password"} value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={settings.apiKeySet ? "Enter new key to replace" : "Enter API key"}
-            className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 pr-10 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-          <button type="button" onClick={() => setShowKey((v) => !v)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">
-            {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-          </button>
+      {/* API Key — hidden for Ollama (local, no key needed) */}
+      {provider !== "Ollama" && (
+        <div>
+          <label htmlFor="api-key" className="mb-1.5 block text-sm font-medium text-slate-300">
+            API Key
+            {settings.apiKeySet && (
+              <span className="ml-2 text-xs font-normal text-slate-500">current: {settings.apiKeyMasked}</span>
+            )}
+          </label>
+          <div className="relative">
+            <input id="api-key" type={showKey ? "text" : "password"} value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={settings.apiKeySet ? "Enter new key to replace" : "Enter API key"}
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 pr-10 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <button type="button" onClick={() => setShowKey((v) => !v)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">
+              {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+            </button>
+          </div>
         </div>
-        {provider === "Ollama" && (
-          <p className="mt-1 text-xs text-slate-500">Ollama runs locally — no API key required.</p>
-        )}
-      </div>
+      )}
 
       {/* Embedding API Key — only shown when using a different embedding provider */}
       {!isLite && needsSeparateEmbedding && embeddingProvider && (
@@ -336,13 +331,13 @@ export function AiModelPage() {
         </Button>
         {isDirty && (
           <Button variant="ghost" onClick={() => {
-            setProvider(settings.provider);
-            setModel(settings.model);
-            setEmbeddingProvider(settings.embeddingProvider ?? settings.provider);
-            setEmbeddingModel(settings.embeddingModel ?? "");
+            setProviderOverride(null);
+            setModelOverride(null);
+            setEmbeddingProviderOverride(null);
+            setEmbeddingModelOverride(null);
+            setRetrievalModeOverride(null);
             setApiKey("");
             setEmbeddingApiKey("");
-            setRetrievalMode(settings.retrievalMode ?? "Hybrid");
           }}>
             Cancel
           </Button>

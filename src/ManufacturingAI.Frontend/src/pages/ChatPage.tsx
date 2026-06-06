@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, FileText, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Send, Square, FileText, ThumbsUp, ThumbsDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui";
 import { chatApi } from "@/api/chat";
@@ -61,7 +61,13 @@ export function ChatPage() {
         controller.signal,
       );
     } catch (err) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) {
+        patchAssistant((m) => ({
+          ...m,
+          content: m.content ? m.content + "\n\n*[Response stopped]*" : "*[Response stopped]*",
+        }));
+        return;
+      }
       const message = `Error: ${getErrorMessage(err)}`;
       patchAssistant((m) => ({
         ...m,
@@ -72,6 +78,8 @@ export function ChatPage() {
       setIsStreaming(false);
     }
   };
+
+  const handleStop = () => abortRef.current?.abort();
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -149,14 +157,24 @@ export function ChatPage() {
               "max-h-40 overflow-y-auto"
             )}
           />
-          <Button
-            onClick={handleSend}
-            disabled={!input.trim() || isStreaming}
-            className="h-11 w-11 shrink-0 !p-0"
-            aria-label="Send"
-          >
-            <Send size={16} />
-          </Button>
+          {isStreaming ? (
+            <Button
+              onClick={handleStop}
+              className="h-11 w-11 shrink-0 !p-0 bg-rose-600 hover:bg-rose-500"
+              aria-label="Stop"
+            >
+              <Square size={14} fill="currentColor" />
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="h-11 w-11 shrink-0 !p-0"
+              aria-label="Send"
+            >
+              <Send size={16} />
+            </Button>
+          )}
         </div>
       </div>
     </div>

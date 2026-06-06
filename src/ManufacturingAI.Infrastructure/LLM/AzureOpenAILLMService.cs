@@ -14,9 +14,16 @@ public class AzureOpenAILLMService : OpenAiLLMService
     {
         var endpoint = config["LLM:AzureEndpoint"]
             ?? throw new InvalidOperationException("LLM:AzureEndpoint is required for azureopenai provider.");
-        var apiKey = config["LLM:ApiKey"]
-            ?? throw new InvalidOperationException("LLM:ApiKey is required for azureopenai provider.");
-        var deployment = config["LLM:DeploymentName"] ?? config["LLM:ChatModel"] ?? "gpt-4o";
+
+        var apiKey = Runtime.ApiKey.NullIfEmpty()
+            ?? config["LLM:ApiKey"]
+            ?? throw new InvalidOperationException(
+                "Azure OpenAI API key is not configured. Please go to Settings → AI Model and enter your API key.");
+
+        var deployment = Runtime.Model.NullIfEmpty()
+            ?? config["LLM:DeploymentName"]
+            ?? config["LLM:ChatModel"]
+            ?? "gpt-4o";
 
         return new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey))
             .GetChatClient(deployment);
