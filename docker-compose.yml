@@ -33,6 +33,7 @@ services:
       Llm__Provider: "${LLM_PROVIDER:-Gemini}"
       Llm__Model: "${LLM_MODEL:-gemini-2.0-flash}"
       Llm__ApiKey: "${LLM_API_KEY:-}"
+      LLM__OllamaBaseUrl: "${LLM_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       OpenAI__ApiKey: "${OPENAI_API_KEY:-}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-${LLM_API_KEY:-}}"
       GEMINI_CHAT_MODEL: "${GEMINI_CHAT_MODEL:-gemini-2.0-flash}"
@@ -94,7 +95,7 @@ services:
       POSTGRES_USER: "${POSTGRES_USER:-postgres}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-buildownrag}"]
       interval: 10s
@@ -113,7 +114,7 @@ services:
       - "${QDRANT_HTTP_PORT:-6333}:6333"
       - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
-      - qdrant_data:/qdrant/storage
+      - ${DATA_DIR:-./data}/qdrant:/qdrant/storage
     restart: unless-stopped
     networks:
       - backend
@@ -125,7 +126,7 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
-      - redis_data:/data
+      - ${DATA_DIR:-./data}/redis:/data
     command: redis-server --appendonly yes --appendfsync everysec
     restart: unless-stopped
     networks:
@@ -159,7 +160,7 @@ services:
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
-      - nginx_certs:/etc/nginx/ssl:ro
+      - ${DATA_DIR:-./data}/nginx-certs:/etc/nginx/ssl:ro
     depends_on:
       app:
         condition: service_healthy
@@ -184,8 +185,4 @@ networks:
   backend:
     driver: bridge
 
-volumes:
-  postgres_data:
-  qdrant_data:
-  redis_data:
-  nginx_certs:
+volumes: {}

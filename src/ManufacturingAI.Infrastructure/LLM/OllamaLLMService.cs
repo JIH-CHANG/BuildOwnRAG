@@ -9,14 +9,18 @@ namespace ManufacturingAI.Infrastructure.LLM;
 public class OllamaLLMService : ILLMService
 {
     private readonly OllamaApiClient _client;
-    private readonly string _model;
+    private readonly string _defaultModel;
+    private readonly LlmRuntimeConfig _runtime;
 
-    public OllamaLLMService(IConfiguration config)
+    public OllamaLLMService(IConfiguration config, LlmRuntimeConfig runtime)
     {
         var baseUrl = config["LLM:OllamaBaseUrl"] ?? "http://localhost:11434";
-        _model = config["LLM:OllamaChatModel"] ?? "qwen2.5";
+        _defaultModel = config["LLM:OllamaChatModel"] ?? "qwen2.5";
+        _runtime = runtime;
         _client = new OllamaApiClient(new Uri(baseUrl));
     }
+
+    private string Model => _runtime.Model.NullIfEmpty() ?? _defaultModel;
 
     public async Task<LLMResponse> CompleteAsync(LLMRequest request, CancellationToken ct = default)
     {
@@ -33,7 +37,7 @@ public class OllamaLLMService : ILLMService
     {
         var chatRequest = new ChatRequest
         {
-            Model = _model,
+            Model = Model,
             Stream = true,
             Messages = BuildMessages(request)
         };
