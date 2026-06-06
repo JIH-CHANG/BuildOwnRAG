@@ -119,6 +119,14 @@ public class LiteQueryService(
             Question = request.Question,
             Answer = answer,
             SourceChunkIds = chunks.Select(c => c.Id.ToString()).ToList(),
+            // Lite mode is BM25-only; record rank + content excerpt, leave scores null.
+            RetrievedChunks = chunks.Select((c, i) => new RetrievedChunkLog
+            {
+                ChunkId = c.Id.ToString(),
+                Rank = i + 1,
+                SourceTitle = c.Metadata.SourceTitle,
+                ContentExcerpt = c.Content.Length > 300 ? c.Content[..300] : c.Content
+            }).ToList(),
             ConfidenceScore = confidenceScore,
             LatencyMs = latencyMs,
             CreatedAt = DateTime.UtcNow

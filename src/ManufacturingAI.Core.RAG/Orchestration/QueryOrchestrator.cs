@@ -210,6 +210,16 @@ public class QueryOrchestrator(
             Question = request.Question,
             Answer = result.Answer,
             SourceChunkIds = chunks.Select(c => c.ChunkId).ToList(),
+            RetrievedChunks = chunks.Select((c, i) => new RetrievedChunkLog
+            {
+                ChunkId = c.ChunkId,
+                Rank = i + 1,
+                SourceTitle = c.Metadata.SourceTitle,
+                ContentExcerpt = c.Content.Length > 300 ? c.Content[..300] : c.Content,
+                VectorScore = c.VectorScore,
+                BM25Score = c.BM25Score,
+                FusionScore = c.FusionScore
+            }).ToList(),
             ConfidenceScore = result.ConfidenceScore,
             LatencyMs = result.LatencyMs,
             CreatedAt = DateTime.UtcNow
