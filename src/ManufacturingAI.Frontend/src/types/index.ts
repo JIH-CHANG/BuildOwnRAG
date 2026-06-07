@@ -211,3 +211,27 @@ export interface DailyQueryCount {
   date: string;
   count: number;
 }
+
+// One retrieved chunk with its scores. Scores are null in Lite mode (BM25-only
+// retrieval records rank + content only).
+export interface RetrievedChunkDetail {
+  chunkId: string;
+  rank: number;
+  sourceTitle: string;
+  contentExcerpt: string;
+  vectorScore: number | null;
+  bm25Score: number | null;
+  fusionScore: number | null;
+}
+
+// A past query with its answer and the chunks that fed the LLM.
+export interface RecentQuery {
+  id: string;
+  question: string;
+  answer: string;
+  confidenceScore: number;
+  latencyMs: number;
+  feedback: string | null;
+  createdAt: string;
+  chunks: RetrievedChunkDetail[];
+}
