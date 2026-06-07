@@ -173,8 +173,15 @@ public class TenantSettingsController(
             return NotFound(this.ApiFail("Tenant not found."));
 
         var effectiveProvider = (provider ?? tenant.Settings.LLMProvider ?? "openai").ToLowerInvariant();
-        var apiKey = tenant.Settings.LLMApiKey;
         var isEmbedding = string.Equals(type, "embedding", StringComparison.OrdinalIgnoreCase);
+
+        // Pick the API key that belongs to the requested provider: when the request targets
+        // the embedding provider and a dedicated embedding key exists, use it; otherwise the
+        // LLM key (which the embedding provider also reuses when it matches the LLM provider).
+        var embeddingProvider = (tenant.Settings.EmbeddingProvider ?? "").ToLowerInvariant();
+        var apiKey = effectiveProvider == embeddingProvider && !string.IsNullOrEmpty(tenant.Settings.EmbeddingApiKey)
+            ? tenant.Settings.EmbeddingApiKey
+            : tenant.Settings.LLMApiKey;
 
         IEnumerable<string> models = (effectiveProvider, isEmbedding) switch
         {

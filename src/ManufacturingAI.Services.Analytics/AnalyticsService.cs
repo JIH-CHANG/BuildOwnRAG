@@ -2,6 +2,7 @@
 using ManufacturingAI.Infrastructure.Caching;
 using ManufacturingAI.Infrastructure.Repositories;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json.Serialization;
 
 namespace ManufacturingAI.Services.Analytics;
 
@@ -66,6 +67,32 @@ public record ConfidenceDistributionResult(List<ConfidenceBucket> Buckets);
 
 public record DailyQueryCount(DateOnly Date, int Count);
 
+// One retrieved chunk with its scores, for the query inspector drill-down.
+// Scores are nullable: Lite mode records rank + content only.
+//
+// JsonPropertyName on BM25Score: System.Text.Json's camelCase policy converts
+// "BM25Score" to "bM25Score" (it stops lowercasing at the digit '2'), which the
+// frontend's "bm25Score" field never matches — explicitly pin the JSON name.
+public record RetrievedChunkDetail(
+    string ChunkId,
+    int Rank,
+    string SourceTitle,
+    string ContentExcerpt,
+    float? VectorScore,
+    [property: JsonPropertyName("bm25Score")] float? BM25Score,
+    float? FusionScore);
+
+// A single past query with its answer and the chunks that fed it.
+public record RecentQueryResult(
+    Guid Id,
+    string Question,
+    string Answer,
+    double ConfidenceScore,
+    long LatencyMs,
+    string? Feedback,
+    DateTime CreatedAt,
+    List<RetrievedChunkDetail> Chunks);
+
 // ── Interface ────────────────────────────────────────────────────────────────
 
 public interface IAnalyticsService
@@ -74,6 +101,7 @@ public interface IAnalyticsService
     Task<IEnumerable<TopQueryResult>> GetTopQueriesAsync(Guid tenantId, int top, DateRange range, CancellationToken ct = default);
     Task<ConfidenceDistributionResult> GetConfidenceDistributionAsync(Guid tenantId, DateRange range, CancellationToken ct = default);
     Task<IEnumerable<DailyQueryCount>> GetQueryTrendAsync(Guid tenantId, DateRange range, CancellationToken ct = default);
+    Task<IEnumerable<RecentQueryResult>> GetRecentQueriesAsync(Guid tenantId, int top, DateRange range, CancellationToken ct = default);
 }
 
 // ── Implementation ───────────────────────────────────────────────────────────
@@ -206,6 +234,30 @@ public class AnalyticsService(
 
         await cache.SetAsync(key, results, CacheTtl, ct);
         return results;
+    }
+
+    // Not cached: the inspector is a debugging/drill-down view and should reflect
+    // the very latest queries (including freshly-submitted feedback).
+    public async Task<IEnumerable<RecentQueryResult>> GetRecentQueriesAsync(
+        Guid tenantId, int top, DateRange range, CancellationToken ct = default)
+    {
+        var logs = await queryLogRepository.GetRecentAsync(tenantId, range.From, range.To, top, ct);
+
+        return logs.Select(l => new RecentQueryResult(
+            Id: l.Id,
+            Question: l.Question,
+            Answer: l.Answer,
+            ConfidenceScore: Math.Round(l.ConfidenceScore, 4),
+            LatencyMs: l.LatencyMs,
+            Feedback: l.Feedback?.ToString(),
+            CreatedAt: l.CreatedAt,
+            Chunks: l.RetrievedChunks
+                .OrderBy(c => c.Rank)
+                .Select(c => new RetrievedChunkDetail(
+                    c.ChunkId, c.Rank, c.SourceTitle, c.ContentExcerpt,
+                    c.VectorScore, c.BM25Score, c.FusionScore))
+                .ToList()))
+            .ToList();
     }
 }
 
