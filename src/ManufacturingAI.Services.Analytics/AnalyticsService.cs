@@ -1,7 +1,8 @@
-    using ManufacturingAI.Core.Models;
+using ManufacturingAI.Core.Models;
 using ManufacturingAI.Infrastructure.Caching;
 using ManufacturingAI.Infrastructure.Repositories;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json.Serialization;
 
 namespace ManufacturingAI.Services.Analytics;
 
@@ -68,13 +69,17 @@ public record DailyQueryCount(DateOnly Date, int Count);
 
 // One retrieved chunk with its scores, for the query inspector drill-down.
 // Scores are nullable: Lite mode records rank + content only.
+//
+// JsonPropertyName on BM25Score: System.Text.Json's camelCase policy converts
+// "BM25Score" to "bM25Score" (it stops lowercasing at the digit '2'), which the
+// frontend's "bm25Score" field never matches — explicitly pin the JSON name.
 public record RetrievedChunkDetail(
     string ChunkId,
     int Rank,
     string SourceTitle,
     string ContentExcerpt,
     float? VectorScore,
-    float? BM25Score,
+    [property: JsonPropertyName("bm25Score")] float? BM25Score,
     float? FusionScore);
 
 // A single past query with its answer and the chunks that fed it.
