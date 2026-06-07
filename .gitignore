@@ -392,3 +392,4 @@ appsettings.*.Local.json
 Thumbs.db
 .idea/
 *.orig
+/CLAUDE.md
