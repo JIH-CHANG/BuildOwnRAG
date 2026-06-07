@@ -216,9 +216,15 @@ function MessageBubble({
               : "rounded-tl-sm bg-surface-border text-slate-200"
           )}
         >
-          {message.content}
-          {streaming && (
-            <span className="ml-0.5 inline-block animate-pulse text-accent">▍</span>
+          {streaming && !message.content ? (
+            <TypingIndicator />
+          ) : (
+            <>
+              {message.content}
+              {streaming && (
+                <span className="ml-0.5 inline-block animate-pulse text-accent">▍</span>
+              )}
+            </>
           )}
         </div>
 
@@ -248,6 +254,20 @@ function MessageBubble({
         )}
       </div>
     </div>
+  );
+}
+
+function TypingIndicator() {
+  return (
+    <span className="inline-flex items-center gap-1 py-0.5" aria-label="Assistant is typing">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400"
+          style={{ animationDelay: `${i * 0.15}s` }}
+        />
+      ))}
+    </span>
   );
 }
 

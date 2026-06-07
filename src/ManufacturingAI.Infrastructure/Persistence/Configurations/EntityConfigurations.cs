@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ManufacturingAI.Core.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -124,6 +125,18 @@ public class QueryLogConfiguration : IEntityTypeConfiguration<QueryLog>
                 (a, b) => a != null && b != null && a.SequenceEqual(b),
                 c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
                 c => c.ToList()));
+
+        // Retrieval detail stored as JSON. Compared by serialized value so EF
+        // change tracking detects edits to the list contents.
+        builder.Property(q => q.RetrievedChunks)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<List<RetrievedChunkLog>>(v, (JsonSerializerOptions?)null) ?? new List<RetrievedChunkLog>())
+            .Metadata.SetValueComparer(new ValueComparer<List<RetrievedChunkLog>>(
+                (a, b) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
+                v => JsonSerializer.Deserialize<List<RetrievedChunkLog>>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null), (JsonSerializerOptions?)null) ?? new List<RetrievedChunkLog>()));
     }
 }
 

@@ -4,6 +4,7 @@ import type {
   AnalyticsRange,
   ConfidenceDistribution,
   DailyQueryCount,
+  RecentQuery,
   TopQuery,
 } from "@/types";
 
@@ -34,6 +35,13 @@ export const analyticsApi = {
     apiClient
       .get<{ data: DailyQueryCount[] }>("/v1/analytics/query-trend", {
         params: { rangeType },
+      })
+      .then(extractData),
+
+  recentQueries: (rangeType: AnalyticsRange, top = 20) =>
+    apiClient
+      .get<{ data: RecentQuery[] }>("/v1/analytics/recent-queries", {
+        params: { rangeType, top: String(top) },
       })
       .then(extractData),
 };

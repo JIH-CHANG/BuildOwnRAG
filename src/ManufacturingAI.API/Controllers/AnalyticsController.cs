@@ -64,6 +64,22 @@ public class AnalyticsController(IAnalyticsService analyticsService) : Controlle
         return Ok(this.ApiOk(result));
     }
 
+    // GET api/v1/analytics/recent-queries?top=20&rangeType=Week
+    // Backs the query inspector: each row carries the answer and the reranked
+    // chunks with their scores.
+    [HttpGet("recent-queries")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<RecentQueryResult>>>> GetRecentQueries(
+        [FromQuery] int top = 20,
+        [FromQuery] string rangeType = "Week",
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        CancellationToken ct = default)
+    {
+        var range = ParseDateRange(rangeType, from, to);
+        var result = await analyticsService.GetRecentQueriesAsync(User.GetTenantId(), top, range, ct);
+        return Ok(this.ApiOk(result));
+    }
+
     private static DateRange ParseDateRange(string rangeType, DateTime? from, DateTime? to) =>
         rangeType.ToLowerInvariant() switch
         {

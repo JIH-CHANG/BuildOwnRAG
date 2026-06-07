@@ -220,7 +220,8 @@ public sealed class SetupService
                 tenantId = (await db.Tenants.FirstAsync(ct)).Id;
             }
 
-            if (!await db.AppUsers.AnyAsync(u => u.Email == state.AdminEmail, ct))
+            var existingUser = await db.AppUsers.FirstOrDefaultAsync(u => u.Email == state.AdminEmail, ct);
+            if (existingUser is null)
             {
                 db.AppUsers.Add(new AppUser
                 {
@@ -232,12 +233,21 @@ public sealed class SetupService
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
                 });
-                await db.SaveChangesAsync(ct);
             }
+            else
+            {
+                // Account already exists (e.g. pre-seeded on app boot). Update the password
+                // and ensure it is an active admin, so the credentials entered in the wizard
+                // actually take effect instead of being silently ignored.
+                existingUser.PasswordHash = BcryptNet.HashPassword(state.AdminPassword);
+                existingUser.Role = UserRole.TenantAdmin;
+                existingUser.IsActive = true;
+            }
+            await db.SaveChangesAsync(ct);
         }
         catch (Exception ex) { seedErr = ex.Message; }
         if (seedErr is not null) { yield return new InstallProgress("seed", "failed", seedErr); yield break; }
-        yield return new InstallProgress("seed", "done", "Admin account created");
+        yield return new InstallProgress("seed", "done", "Admin account ready");
 
         // Step 3 — Qdrant collection (skipped when no embedding provider is configured)
         yield return new InstallProgress("qdrant", "running", "Initializing vector store...");
