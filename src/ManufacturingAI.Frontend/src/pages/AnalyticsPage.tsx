@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BarChart2, RefreshCw, TrendingUp } from "lucide-react";
+import {
+  BarChart2,
+  ChevronRight,
+  MessageSquare,
+  RefreshCw,
+  TrendingUp,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge, Button, Skeleton } from "@/components/ui";
 import { analyticsApi } from "@/api/analytics";
@@ -9,6 +15,8 @@ import type {
   AnalyticsRange,
   ConfidenceBucket,
   DailyQueryCount,
+  RecentQuery,
+  RetrievedChunkDetail,
   TopQuery,
 } from "@/types";
 
@@ -39,18 +47,24 @@ export function AnalyticsPage() {
     queryKey: ["analytics", "top-queries", range],
     queryFn: () => analyticsApi.topQueries(range),
   });
+  const recentQueries = useQuery({
+    queryKey: ["analytics", "recent-queries", range],
+    queryFn: () => analyticsApi.recentQueries(range),
+  });
 
   const isFetching =
     overview.isFetching ||
     trend.isFetching ||
     distribution.isFetching ||
-    topQueries.isFetching;
+    topQueries.isFetching ||
+    recentQueries.isFetching;
 
   const refetchAll = () => {
     void overview.refetch();
     void trend.refetch();
     void distribution.refetch();
     void topQueries.refetch();
+    void recentQueries.refetch();
   };
 
   return (
@@ -148,6 +162,21 @@ export function AnalyticsPage() {
             <ErrorBox message={getErrorMessage(topQueries.error)} />
           ) : (
             <TopQueriesTable rows={topQueries.data ?? []} />
+          )}
+        </Panel>
+
+        {/* Query inspector — question → reranked chunks + scores → answer */}
+        <Panel title="Query inspector" icon={<MessageSquare size={14} />}>
+          {recentQueries.isLoading ? (
+            <div className="flex flex-col gap-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : recentQueries.isError ? (
+            <ErrorBox message={getErrorMessage(recentQueries.error)} />
+          ) : (
+            <QueryInspector rows={recentQueries.data ?? []} />
           )}
         </Panel>
       </div>
@@ -408,6 +437,151 @@ function TopQueriesTable({ rows }: { rows: TopQuery[] }) {
       </tbody>
     </table>
   );
+}
+
+// ── Query inspector ───────────────────────────────────────────────────────────
+
+function QueryInspector({ rows }: { rows: RecentQuery[] }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  if (rows.length === 0) {
+    return <EmptyState message="No queries in this period" />;
+  }
+
+  return (
+    <div className="flex flex-col divide-y divide-surface-border/50">
+      {rows.map((row) => {
+        const isOpen = openId === row.id;
+        return (
+          <div key={row.id}>
+            <button
+              onClick={() => setOpenId(isOpen ? null : row.id)}
+              className="flex w-full items-center gap-3 py-3 text-left hover:bg-white/[0.02]"
+            >
+              <ChevronRight
+                size={14}
+                className={cn(
+                  "shrink-0 text-slate-500 transition-transform",
+                  isOpen && "rotate-90"
+                )}
+              />
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
+                {row.question}
+              </span>
+              {row.feedback && (
+                <Badge
+                  variant={row.feedback === "Positive" ? "success" : "muted"}
+                >
+                  {row.feedback}
+                </Badge>
+              )}
+              <Badge variant={confidenceVariant(row.confidenceScore)}>
+                {formatPercent(row.confidenceScore)}
+              </Badge>
+              <span className="shrink-0 text-xs tabular-nums text-slate-500">
+                {row.latencyMs} ms
+              </span>
+              <span className="hidden shrink-0 text-xs tabular-nums text-slate-500 sm:inline">
+                {formatTimestamp(row.createdAt)}
+              </span>
+            </button>
+
+            {isOpen && (
+              <div className="space-y-4 pb-4 pl-7 pr-2">
+                <div>
+                  <p className="mb-1 text-xs font-medium text-slate-500">
+                    Answer
+                  </p>
+                  <p className="whitespace-pre-wrap rounded-md border border-surface-border bg-surface/40 p-3 text-sm text-slate-300">
+                    {row.answer}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-medium text-slate-500">
+                    Retrieved chunks ({row.chunks.length})
+                  </p>
+                  {row.chunks.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      No chunks recorded for this query.
+                    </p>
+                  ) : (
+                    <ChunkScoreList chunks={row.chunks} />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChunkScoreList({ chunks }: { chunks: RetrievedChunkDetail[] }) {
+  // Normalize each score type against the max within this query so the bars are
+  // comparable (RRF fusion scores are tiny in absolute terms).
+  const maxFusion = Math.max(...chunks.map((c) => c.fusionScore ?? 0), 1e-9);
+
+  return (
+    <div className="flex flex-col gap-2">
+      {chunks.map((c) => (
+        <div
+          key={c.chunkId}
+          className="rounded-md border border-surface-border bg-surface/40 p-3"
+        >
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 rounded bg-surface-border/60 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-400">
+              #{c.rank}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
+              {c.sourceTitle || "(untitled source)"}
+            </span>
+          </div>
+
+          <p className="mt-1.5 line-clamp-3 text-xs text-slate-500">
+            {c.contentExcerpt}
+          </p>
+
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+            <ScoreTag label="Vector" value={c.vectorScore} />
+            <ScoreTag label="BM25" value={c.bm25Score} />
+            <ScoreTag label="Fusion" value={c.fusionScore} />
+            {c.fusionScore != null && (
+              <div className="ml-auto h-1.5 w-24 overflow-hidden rounded bg-surface-border/40">
+                <div
+                  className="h-full rounded bg-accent/70"
+                  style={{ width: `${(c.fusionScore / maxFusion) * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ScoreTag({ label, value }: { label: string; value: number | null }) {
+  return (
+    <span className="text-[11px] tabular-nums text-slate-500">
+      {label}:{" "}
+      <span className="text-slate-300">
+        {value == null ? "—" : value.toFixed(4)}
+      </span>
+    </span>
+  );
+}
+
+function formatTimestamp(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 // ── Shared empty state ────────────────────────────────────────────────────────

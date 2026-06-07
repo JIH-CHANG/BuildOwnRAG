@@ -33,6 +33,7 @@ public interface IQueryLogRepository : IRepository<QueryLog>
 {
     Task<(IEnumerable<QueryLog> Items, int Total)> GetByTenantAsync(Guid tenantId, int page, int pageSize, CancellationToken ct = default);
     Task<IEnumerable<QueryLog>> GetByRangeAsync(Guid tenantId, DateTime from, DateTime to, CancellationToken ct = default);
+    Task<IEnumerable<QueryLog>> GetRecentAsync(Guid tenantId, DateTime from, DateTime to, int top, CancellationToken ct = default);
     Task<Result> UpdateFeedbackAsync(Guid id, QueryFeedback feedback, CancellationToken ct = default);
 }
 

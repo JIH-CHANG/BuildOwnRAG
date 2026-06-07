@@ -51,9 +51,21 @@ export function AiModelPage() {
   const isLite = retrievalMode === "Lite";
   const needsSeparateEmbedding = NEEDS_SEPARATE_EMBEDDING.includes(provider as AiProvider);
 
-  const embeddingProvider = embeddingProviderOverride ?? settings?.embeddingProvider ?? settings?.provider ?? "";
+  // Embedding provider is chosen independently of the chat (LLM) provider. Fall back to
+  // the LLM provider when none is stored, but only if it supports embeddings; otherwise
+  // default to the first embedding-capable provider so the selector always has a valid value.
+  const rawEmbeddingProvider = embeddingProviderOverride ?? settings?.embeddingProvider ?? settings?.provider ?? "";
+  const embeddingProvider = (
+    EMBEDDING_CAPABLE.includes(rawEmbeddingProvider as AiProvider)
+      ? rawEmbeddingProvider
+      : (EMBEDDING_CAPABLE.includes(provider as AiProvider) ? provider : EMBEDDING_CAPABLE[0])
+  ) as AiProvider;
   // The provider that will actually serve embeddings
-  const effectiveEmbeddingProvider = needsSeparateEmbedding ? embeddingProvider : provider;
+  const effectiveEmbeddingProvider = embeddingProvider;
+  // A separate embedding API key is only needed when embeddings use a different provider
+  // than the LLM (so the LLM key can't be reused) and that provider isn't keyless (Ollama).
+  const embeddingUsesSeparateKey =
+    !isLite && embeddingProvider !== provider && embeddingProvider !== "Ollama";
 
   // Chat model list
   const { data: chatModels = [], isFetching: chatModelsFetching } = useQuery({
@@ -91,8 +103,7 @@ export function AiModelPage() {
       } = {};
       if (provider && provider !== settings?.provider)                       payload.provider          = provider;
       if (model    && model    !== settings?.model)                          payload.model             = model;
-      const saveEmbProv = needsSeparateEmbedding ? embeddingProvider : provider;
-      if (saveEmbProv && saveEmbProv !== settings?.embeddingProvider)        payload.embeddingProvider = saveEmbProv as string;
+      if (embeddingProvider && embeddingProvider !== settings?.embeddingProvider) payload.embeddingProvider = embeddingProvider as string;
       if (embeddingModel && embeddingModel !== settings?.embeddingModel)     payload.embeddingModel    = embeddingModel;
       if (apiKey !== "")                                                     payload.apiKey            = apiKey;
       if (embeddingApiKey !== "")                                            payload.embeddingApiKey   = embeddingApiKey;
@@ -129,7 +140,7 @@ export function AiModelPage() {
   const isDirty =
     provider !== settings.provider ||
     model !== settings.model ||
-    (needsSeparateEmbedding ? embeddingProvider : provider) !== settings.embeddingProvider ||
+    embeddingProvider !== settings.embeddingProvider ||
     embeddingModel !== (settings.embeddingModel ?? "") ||
     apiKey !== "" ||
     embeddingApiKey !== "" ||
@@ -138,10 +149,8 @@ export function AiModelPage() {
   const handleProviderChange = (next: AiProvider) => {
     setProviderOverride(next);
     setModelOverride(""); // "" triggers auto-select when chatModels load
-    if (EMBEDDING_CAPABLE.includes(next)) {
-      setEmbeddingProviderOverride(next);
-      setEmbeddingModelOverride(""); // "" triggers auto-select
-    }
+    // Embedding provider/model are independent — changing the chat provider no longer
+    // overrides them. Pick them separately in the Embedding Provider/Model selectors.
   };
 
   const handleEmbeddingProviderChange = (next: AiProvider) => {
@@ -224,8 +233,8 @@ export function AiModelPage() {
         </Select>
       )}
 
-      {/* Embedding Provider — shown when LLM provider has no embeddings (e.g. Groq) */}
-      {!isLite && needsSeparateEmbedding && (
+      {/* Embedding Provider — chosen independently of the chat provider */}
+      {!isLite && (
         <div>
           <Select
             label="Embedding Provider"
@@ -238,8 +247,20 @@ export function AiModelPage() {
             ))}
           </Select>
           <p className="mt-1 text-xs text-slate-500">
-            {provider === "Claude" ? "Claude" : "Groq"} does not provide embeddings — select a separate provider for document indexing.
+            {needsSeparateEmbedding
+              ? `${provider} does not provide embeddings — select a provider for document indexing.`
+              : "Used to index and search documents. Can differ from the chat provider — e.g. local Ollama embeddings with a cloud chat model."}
           </p>
+
+          {embeddingProvider !== settings.embeddingProvider && (
+            <div className="mt-2 flex gap-2 rounded-md border border-amber-600/40 bg-amber-900/30 px-3 py-2 text-xs text-amber-200">
+              <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+              <span>
+                Changing the embedding provider changes how documents are indexed. Existing
+                documents must be <strong>re-ingested</strong> to be searchable with the new provider.
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -294,8 +315,8 @@ export function AiModelPage() {
         </div>
       )}
 
-      {/* Embedding API Key — only shown when using a different embedding provider */}
-      {!isLite && needsSeparateEmbedding && embeddingProvider && (
+      {/* Embedding API Key — only shown when embeddings use a different (non-keyless) provider */}
+      {embeddingUsesSeparateKey && (
         <div>
           <label htmlFor="embedding-api-key" className="mb-1.5 block text-sm font-medium text-slate-300">
             Embedding API Key
