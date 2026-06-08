@@ -35,13 +35,18 @@ public class QueryOrchestrator(
     {
         var sw = Stopwatch.StartNew();
 
-        // 1. Compute query hash and check Redis cache
+        // 1. Compute query hash and check Redis cache. Evaluation requests
+        // (IncludeFullContext) bypass the cache so results reflect real
+        // retrieval and carry full chunk content rather than a cached excerpt.
         var queryHash = ComputeHash(request.Question);
         var cacheKey = CacheKeys.QueryResult(request.TenantId, queryHash);
-        var cached = await cache.GetAsync<QueryResult>(cacheKey, ct);
-        if (cached is not null)
+        if (!request.IncludeFullContext)
         {
-            return cached with { IsFromCache = true, LatencyMs = sw.ElapsedMilliseconds };
+            var cached = await cache.GetAsync<QueryResult>(cacheKey, ct);
+            if (cached is not null)
+            {
+                return cached with { IsFromCache = true, LatencyMs = sw.ElapsedMilliseconds };
+            }
         }
 
         // 2. Retrieve candidate chunks via HybridRetriever
@@ -83,7 +88,7 @@ public class QueryOrchestrator(
             : llmResponse.Content;
 
         // 8. Build source references
-        var sources = BuildSources(reranked);
+        var sources = BuildSources(reranked, request.IncludeFullContext);
 
         var result = new QueryResult(
             Answer: answer,
@@ -93,8 +98,13 @@ public class QueryOrchestrator(
             IsFromFallback: isFromFallback || llmResponse.IsFromFallback,
             LatencyMs: sw.ElapsedMilliseconds);
 
-        // 9. Store result in Redis cache (TTL 30 min)
-        await cache.SetAsync(cacheKey, result, CacheKeys.QueryResultTtl, ct);
+        // 9. Store result in Redis cache (TTL 30 min). Skip for evaluation
+        // requests so the cache is not polluted with full-context payloads
+        // keyed only by query hash.
+        if (!request.IncludeFullContext)
+        {
+            await cache.SetAsync(cacheKey, result, CacheKeys.QueryResultTtl, ct);
+        }
 
         // 10. Persist QueryLog
         await SaveQueryLogAsync(request, result, reranked, queryHash, ct);
@@ -183,7 +193,7 @@ public class QueryOrchestrator(
         return sb.ToString();
     }
 
-    private static List<SourceReference> BuildSources(List<RetrievedChunk> chunks)
+    private static List<SourceReference> BuildSources(List<RetrievedChunk> chunks, bool includeFullContent = false)
         => chunks.Select(c =>
         {
             Guid.TryParse(c.Metadata.SourceTitle, out var docId);
@@ -192,7 +202,8 @@ public class QueryOrchestrator(
                 Title: c.Metadata.SourceTitle,
                 SourceType: c.Metadata.SourceType,
                 PageNumber: c.Metadata.PageNumber,
-                RelevantExcerpt: c.Content.Length > 200 ? c.Content[..200] + "…" : c.Content);
+                RelevantExcerpt: c.Content.Length > 200 ? c.Content[..200] + "…" : c.Content,
+                FullContent: includeFullContent ? c.Content : null);
         }).ToList();
 
     private async Task<Guid> SaveQueryLogAsync(

@@ -41,7 +41,8 @@ public class LiteQueryService(
             await SaveQueryLogAsync(request, resp.Content, chunks, confidence, sw.ElapsedMilliseconds, ct);
 
             return Result<QueryResult>.Ok(new QueryResult(
-                resp.Content, confidence, BuildSources(chunks), false, resp.IsFromFallback, sw.ElapsedMilliseconds));
+                resp.Content, confidence, BuildSources(chunks, request.IncludeFullContext),
+                false, resp.IsFromFallback, sw.ElapsedMilliseconds));
         }
         catch (Exception ex)
         {
@@ -98,9 +99,10 @@ public class LiteQueryService(
     private static string Excerpt(string content) =>
         content.Length <= 200 ? content : content[..200];
 
-    private static List<SourceReference> BuildSources(IReadOnlyList<DocumentChunk> chunks)
+    private static List<SourceReference> BuildSources(IReadOnlyList<DocumentChunk> chunks, bool includeFullContent = false)
         => chunks.Select(c => new SourceReference(
-            c.DocumentId, c.Metadata.SourceTitle, c.Metadata.SourceType, c.Metadata.PageNumber, Excerpt(c.Content)))
+            c.DocumentId, c.Metadata.SourceTitle, c.Metadata.SourceType, c.Metadata.PageNumber, Excerpt(c.Content),
+            includeFullContent ? c.Content : null))
             .ToList();
 
     private async Task<Guid> SaveQueryLogAsync(
