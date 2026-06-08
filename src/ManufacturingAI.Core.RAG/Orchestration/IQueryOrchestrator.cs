@@ -6,7 +6,11 @@ public record QueryRequest(
     Guid TenantId,
     Guid UserId,
     string Question,
-    List<LLMMessage>? History = null
+    List<LLMMessage>? History = null,
+    // Evaluation opt-in: when true, sources carry the full chunk content
+    // (SourceReference.FullContent) and the Redis cache is bypassed so the
+    // result reflects real retrieval. Defaults to false for normal traffic.
+    bool IncludeFullContext = false
 );
 
 public record QueryResult(
@@ -23,7 +27,10 @@ public record SourceReference(
     string Title,
     string SourceType,
     int? PageNumber,
-    string RelevantExcerpt
+    string RelevantExcerpt,
+    // Full chunk content, populated only when QueryRequest.IncludeFullContext
+    // is set (used by the offline Ragas evaluation harness). Null otherwise.
+    string? FullContent = null
 );
 
 // One element of a streamed query response: either an incremental answer
