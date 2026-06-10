@@ -74,7 +74,8 @@ public class HybridRetriever(
                 VectorScore: vectorScore,
                 BM25Score: bm25Score,
                 FusionScore: fusionScore,
-                Metadata: chunk?.Metadata ?? new ChunkMetadata());
+                Metadata: chunk?.Metadata ?? new ChunkMetadata(),
+                RerankScore: vectorScore);
         })
         .OrderByDescending(c => c.FusionScore)
         .Take(request.TopK)
