@@ -22,6 +22,21 @@ public class QueryOrchestrator(
 {
     private const string FallbackWarning = "\n\nNote: The confidence score for this answer is low. Please verify against the original documents.";
 
+    private const int RetrieveCandidates = 20;
+    private const int RerankTopK = 5;
+    private const double LowConfidenceThreshold = 0.4;
+
+    // Confidence blends the top reranked chunk's relevance (RerankScore, 0-1:
+    // cosine similarity or Cohere relevance_score) with answer length. RRF
+    // FusionScore must not be used here — it is rank-based and tops out at ~0.033,
+    // which would put every answer below the low-confidence threshold.
+    private static double ComputeConfidence(List<RetrievedChunk> reranked, int answerLength)
+    {
+        float topRerankScore = reranked.Count > 0 ? reranked[0].RerankScore : 0f;
+        double lengthIndicator = Math.Min(answerLength / 500.0, 1.0);
+        return topRerankScore * 0.7 + lengthIndicator * 0.3;
+    }
+
     // Combine the tenant's instructions (or the built-in default) with the retrieved context.
     private static string BuildSystemPrompt(Tenant tenant, string context)
     {
@@ -49,18 +64,20 @@ public class QueryOrchestrator(
             }
         }
 
-        // 2. Retrieve candidate chunks via HybridRetriever
+        // 2. Retrieve candidate chunks via HybridRetriever. A wider candidate pool
+        // gives the reranker more to choose from (Cohere precision improves with
+        // more candidates; the cosine path still takes the top 5 either way).
         var retrieveRequest = new RetrieveRequest(
             TenantId: request.TenantId,
             Query: request.Question,
-            TopK: 10);
+            TopK: RetrieveCandidates);
 
         var candidates = await retriever.RetrieveAsync(retrieveRequest, ct);
 
         // 3. Select reranker based on TenantPlan (Free: Cosine, Professional+: Cohere)
         var tenant = await GetTenantCachedAsync(request.TenantId, ct);
         var reranker = rerankerFactory.GetReranker(tenant.Plan);
-        var reranked = (await reranker.RerankAsync(request.Question, candidates, topK: 5, ct)).ToList();
+        var reranked = (await reranker.RerankAsync(request.Question, candidates, RerankTopK, ct)).ToList();
 
         // 4. Build system prompt with context
         var context = BuildContext(reranked);
@@ -77,12 +94,10 @@ public class QueryOrchestrator(
         var llmResponse = await llmService.CompleteAsync(llmRequest, ct);
 
         // 6. Compute confidence score
-        float topRerankerScore = reranked.Count > 0 ? reranked[0].FusionScore : 0f;
-        double lengthIndicator = Math.Min(llmResponse.Content.Length / 500.0, 1.0);
-        double confidenceScore = topRerankerScore * 0.7 + lengthIndicator * 0.3;
+        double confidenceScore = ComputeConfidence(reranked, llmResponse.Content.Length);
 
         // 7. Append fallback warning when confidence is low
-        bool isFromFallback = confidenceScore < 0.4;
+        bool isFromFallback = confidenceScore < LowConfidenceThreshold;
         var answer = isFromFallback
             ? llmResponse.Content + FallbackWarning
             : llmResponse.Content;
@@ -119,12 +134,12 @@ public class QueryOrchestrator(
         var sw = Stopwatch.StartNew();
 
         // Retrieval + rerank run synchronously up front; only LLM generation streams.
-        var retrieveRequest = new RetrieveRequest(request.TenantId, request.Question, TopK: 10);
+        var retrieveRequest = new RetrieveRequest(request.TenantId, request.Question, TopK: RetrieveCandidates);
         var candidates = await retriever.RetrieveAsync(retrieveRequest, ct);
 
         var tenant = await GetTenantCachedAsync(request.TenantId, ct);
         var reranker = rerankerFactory.GetReranker(tenant.Plan);
-        var reranked = (await reranker.RerankAsync(request.Question, candidates, topK: 5, ct)).ToList();
+        var reranked = (await reranker.RerankAsync(request.Question, candidates, RerankTopK, ct)).ToList();
 
         var context = BuildContext(reranked);
         var systemPrompt = BuildSystemPrompt(tenant, context);
@@ -138,10 +153,8 @@ public class QueryOrchestrator(
         }
 
         // Confidence and the low-confidence warning mirror the non-streaming path.
-        float topRerankerScore = reranked.Count > 0 ? reranked[0].FusionScore : 0f;
-        double lengthIndicator = Math.Min(answer.Length / 500.0, 1.0);
-        double confidenceScore = topRerankerScore * 0.7 + lengthIndicator * 0.3;
-        bool isFromFallback = confidenceScore < 0.4;
+        double confidenceScore = ComputeConfidence(reranked, answer.Length);
+        bool isFromFallback = confidenceScore < LowConfidenceThreshold;
         if (isFromFallback)
         {
             answer.Append(FallbackWarning);
