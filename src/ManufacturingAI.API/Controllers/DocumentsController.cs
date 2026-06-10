@@ -16,7 +16,8 @@ public class DocumentsController(
     IDocumentRepository documentRepository,
     IDocumentChunkRepository chunkRepository,
     ISyncStateRepository syncStateRepository,
-    IVectorStore vectorStore) : ControllerBase
+    IVectorStore vectorStore,
+    ITenantVectorService tenantVectorService) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<ApiResponse<object>>> GetAll(
@@ -56,7 +57,8 @@ public class DocumentsController(
         // Clean up everything tied to the document so a later re-upload starts fresh:
         // Qdrant vectors, Postgres chunks (BM25/Lite source), and the version-hash sync
         // bookkeeping (otherwise dedup would skip re-ingesting the recreated document).
-        await vectorStore.DeleteByDocumentIdAsync($"tenant_{tenantId}", id, ct);
+        var collectionName = await tenantVectorService.GetActiveCollectionNameAsync(tenantId, ct);
+        await vectorStore.DeleteByDocumentIdAsync(collectionName, id, ct);
         await chunkRepository.DeleteByDocumentIdAsync(id, ct);
         await syncStateRepository.DeleteBySourceAsync(tenantId, doc.SourceId, ct);
         var result = await documentRepository.DeleteAsync(id, ct);
