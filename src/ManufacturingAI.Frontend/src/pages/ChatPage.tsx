@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Square, FileText, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Send, Square, FileText, ThumbsUp, ThumbsDown, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui";
-import { chatApi } from "@/api/chat";
+import { Button, Modal } from "@/components/ui";
+import { chatApi, isMigrationInProgress } from "@/api/chat";
 import { getErrorMessage } from "@/api/client";
 import type { ChatMessage, QueryFeedback, QuerySource } from "@/types";
 
@@ -18,6 +18,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [migrationNotice, setMigrationNotice] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -66,6 +67,12 @@ export function ChatPage() {
           ...m,
           content: m.content ? m.content + "\n\n*[Response stopped]*" : "*[Response stopped]*",
         }));
+        return;
+      }
+      if (isMigrationInProgress(err)) {
+        // Drop the empty assistant bubble and explain via the dialog instead.
+        setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+        setMigrationNotice(true);
         return;
       }
       const message = `Error: ${getErrorMessage(err)}`;
@@ -177,6 +184,26 @@ export function ChatPage() {
           )}
         </div>
       </div>
+
+      <Modal
+        open={migrationNotice}
+        onClose={() => setMigrationNotice(false)}
+        title="Index Migration in Progress"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-3 text-sm leading-relaxed text-slate-300">
+            <RefreshCw size={18} className="mt-0.5 shrink-0 animate-spin text-accent" />
+            <p>
+              The document index is being rebuilt because the embedding model
+              changed. Queries are temporarily unavailable — please try again
+              in a few minutes.
+            </p>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setMigrationNotice(false)}>OK</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
