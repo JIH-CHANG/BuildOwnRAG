@@ -4,6 +4,7 @@ using Lucene.Net.Index;
 using Lucene.Net.Search;
 using Lucene.Net.Store;
 using Lucene.Net.Util;
+using ManufacturingAI.Core.Common;
 using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
 using ManufacturingAI.Infrastructure.Repositories;
@@ -27,8 +28,13 @@ public class HybridRetriever(
 
         // Ensure the collection exists with the correct dimensions.
         // On first ever query this creates the collection; on subsequent calls it is a no-op.
-        var (collectionName, _) = await tenantVectorService.EnsureDimensionsCompatibleAsync(
+        var (collectionName, migrationRequired) = await tenantVectorService.EnsureDimensionsCompatibleAsync(
             request.TenantId, queryVector.Length, ct);
+
+        // The collection holds vectors of a different dimension than the current
+        // embedding model produces; searching it would fail inside Qdrant.
+        if (migrationRequired)
+            throw new MigrationInProgressException(request.TenantId);
 
         var filters = request.Filters ?? new Dictionary<string, object> { ["tenantId"] = request.TenantId.ToString() };
         var vectorResults = (await vectorStore.SearchAsync(collectionName, queryVector, request.TopK * 2, filters, ct)).ToList();
@@ -68,7 +74,8 @@ public class HybridRetriever(
                 VectorScore: vectorScore,
                 BM25Score: bm25Score,
                 FusionScore: fusionScore,
-                Metadata: chunk?.Metadata ?? new ChunkMetadata());
+                Metadata: chunk?.Metadata ?? new ChunkMetadata(),
+                RerankScore: vectorScore);
         })
         .OrderByDescending(c => c.FusionScore)
         .Take(request.TopK)

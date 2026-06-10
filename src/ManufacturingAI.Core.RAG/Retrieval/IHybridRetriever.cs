@@ -15,7 +15,11 @@ public record RetrievedChunk(
     float VectorScore,
     float BM25Score,
     float FusionScore,
-    ChunkMetadata Metadata
+    ChunkMetadata Metadata,
+    // Relevance on a 0-1 scale, set by the reranker (cosine similarity or Cohere
+    // relevance_score). RRF FusionScore is rank-based (max ~0.033) and must not be
+    // used for confidence thresholds.
+    float RerankScore = 0f
 );
 
 public interface IHybridRetriever

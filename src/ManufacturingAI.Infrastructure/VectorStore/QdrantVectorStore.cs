@@ -87,6 +87,14 @@ public class QdrantVectorStore(QdrantClient client, ILogger<QdrantVectorStore> l
 
     public async Task DeleteByDocumentIdAsync(string collectionName, Guid documentId, CancellationToken ct = default)
     {
+        if (!await CollectionExistsAsync(collectionName, ct))
+        {
+            logger.LogWarning(
+                "Qdrant collection '{Name}' not found — no vectors to delete for document {DocumentId}",
+                collectionName, documentId);
+            return;
+        }
+
         var filter = new Filter();
         filter.Must.Add(new Condition
         {

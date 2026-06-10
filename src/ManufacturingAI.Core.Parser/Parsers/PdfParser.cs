@@ -1,6 +1,8 @@
 using ManufacturingAI.Core.Interfaces;
 using System.Text;
 using UglyToad.PdfPig;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.PageSegmenter;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.ReadingOrderDetector;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
 
 namespace ManufacturingAI.Core.Parser.Parsers;
@@ -51,19 +53,21 @@ public class PdfParser : IDocumentParser
         {
             ct.ThrowIfCancellationRequested();
 
-            // Group words into lines by rounding Y coordinate to nearest point
-            var lines = page
-                .GetWords(NearestNeighbourWordExtractor.Instance)
-                .GroupBy(w => (int)Math.Round(w.BoundingBox.Top))
-                .OrderByDescending(g => g.Key)
-                .Select(g => g.OrderBy(w => w.BoundingBox.Left).ToList())
-                .ToList();
+            // Segment the page into text blocks and order them by reading order.
+            // Naive Y-coordinate line grouping scrambles tables and multi-column
+            // layouts because cells from different columns interleave per row.
+            var words = page.GetWords(NearestNeighbourWordExtractor.Instance).ToList();
+            if (words.Count == 0) continue;
 
-            foreach (var lineWords in lines)
+            var blocks = DocstrumBoundingBoxes.Instance.GetBlocks(words);
+            var orderedBlocks = UnsupervisedReadingOrderDetector.Instance.Get(blocks);
+
+            foreach (var line in orderedBlocks.SelectMany(b => b.TextLines))
             {
+                var lineWords = line.Words.ToList();
                 if (lineWords.Count == 0) continue;
 
-                var lineText = string.Join(" ", lineWords.Select(w => w.Text));
+                var lineText = line.Text;
                 if (string.IsNullOrWhiteSpace(lineText)) continue;
 
                 double avgSize = lineWords

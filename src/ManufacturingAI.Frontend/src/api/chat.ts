@@ -14,6 +14,21 @@ export interface QueryStreamHandlers {
   onComplete: (meta: QueryStreamMeta) => void;
 }
 
+// Non-OK response from the stream endpoint, carrying the HTTP status so the
+// UI can distinguish e.g. 503 (index migration in progress) from other errors.
+export class QueryStreamError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "QueryStreamError";
+  }
+}
+
+export const isMigrationInProgress = (err: unknown): err is QueryStreamError =>
+  err instanceof QueryStreamError && err.status === 503;
+
 // One SSE payload from /v1/query/stream. Either `token` (an incremental
 // answer chunk) or `sources` (the terminal event) is populated.
 interface QueryStreamEvent {
@@ -84,7 +99,16 @@ export const chatApi = {
       return;
     }
     if (!res.ok || !res.body) {
-      throw new Error(`Query failed (${res.status})`);
+      // Error responses are JSON ApiResponse bodies, not SSE — surface the
+      // server's error message when one is present.
+      let message = `Query failed (${res.status})`;
+      try {
+        const body = (await res.json()) as { error?: string };
+        if (body.error) message = body.error;
+      } catch {
+        // non-JSON body: keep the generic message
+      }
+      throw new QueryStreamError(message, res.status);
     }
 
     const reader = res.body.getReader();
