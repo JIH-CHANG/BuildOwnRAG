@@ -106,6 +106,18 @@ internal static class EnvGenerator
     public static async Task WriteAsync(SetupState s, string path = ".env")
     {
         var content = Build(s);
+
+        // Preserve DATA_DIR from the existing .env — docker-compose uses it for
+        // volume mounts, and dropping it would silently switch Postgres/Qdrant/Redis
+        // to a fresh data directory on the next compose up.
+        if (File.Exists(path))
+        {
+            var dataDirLine = (await File.ReadAllLinesAsync(path))
+                .FirstOrDefault(l => l.TrimStart().StartsWith("DATA_DIR="));
+            if (dataDirLine is not null)
+                content += $"\n# ── Data directory ────────────────────────────────────────────\n{dataDirLine}\n";
+        }
+
         await File.WriteAllTextAsync(path, content);
     }
 }
