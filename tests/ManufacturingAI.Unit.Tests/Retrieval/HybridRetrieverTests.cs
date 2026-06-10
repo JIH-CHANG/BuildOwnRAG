@@ -1,3 +1,4 @@
+using ManufacturingAI.Core.Common;
 using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
 using ManufacturingAI.Core.RAG.Retrieval;
@@ -23,7 +24,8 @@ public class HybridRetrieverTests
     private static (HybridRetriever retriever,
                     IVectorStore vectorStore,
                     IEmbeddingService embeddingService,
-                    IDocumentChunkRepository chunkRepo) Build()
+                    IDocumentChunkRepository chunkRepo,
+                    ITenantVectorService tenantVector) Build()
     {
         var vectorStore      = Substitute.For<IVectorStore>();
         var embeddingService = Substitute.For<IEmbeddingService>();
@@ -31,8 +33,8 @@ public class HybridRetrieverTests
         var tenantVector     = Substitute.For<ITenantVectorService>();
 
         tenantVector
-            .GetActiveCollectionNameAsync(TenantId, Arg.Any<CancellationToken>())
-            .Returns(CollectionName);
+            .EnsureDimensionsCompatibleAsync(TenantId, Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns((CollectionName, false));
 
         embeddingService
             .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -41,7 +43,7 @@ public class HybridRetrieverTests
         var retriever = new HybridRetriever(
             vectorStore, embeddingService, chunkRepo, tenantVector);
 
-        return (retriever, vectorStore, embeddingService, chunkRepo);
+        return (retriever, vectorStore, embeddingService, chunkRepo, tenantVector);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -62,12 +64,32 @@ public class HybridRetrieverTests
     private static RetrieveRequest QueryFor(string query, int topK = 10) =>
         new(TenantId, query, topK);
 
+    // ── Migration guard ───────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RetrieveAsync_MigrationRequired_ThrowsMigrationInProgress()
+    {
+        var (retriever, vectorStore, _, _, tenantVector) = Build();
+
+        // Stored dimensions differ from the query vector's: collection must migrate.
+        tenantVector
+            .EnsureDimensionsCompatibleAsync(TenantId, Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns((CollectionName, true));
+
+        var act = () => retriever.RetrieveAsync(QueryFor("anything"));
+
+        await act.Should().ThrowAsync<MigrationInProgressException>();
+        // The mismatched collection must never be searched.
+        await vectorStore.DidNotReceiveWithAnyArgs()
+            .SearchAsync(default!, default!, default, default, default);
+    }
+
     // ── Basic retrieval ───────────────────────────────────────────────────────
 
     [Fact]
     public async Task RetrieveAsync_BasicFlow_ReturnsNonEmptyResults()
     {
-        var (retriever, vectorStore, _, chunkRepo) = Build();
+        var (retriever, vectorStore, _, chunkRepo, _) = Build();
 
         vectorStore
             .SearchAsync(CollectionName, Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>?>(), Arg.Any<CancellationToken>())
@@ -86,7 +108,7 @@ public class HybridRetrieverTests
     [Fact]
     public async Task RetrieveAsync_NoVectorResults_ReturnsEmpty()
     {
-        var (retriever, vectorStore, _, chunkRepo) = Build();
+        var (retriever, vectorStore, _, chunkRepo, _) = Build();
 
         vectorStore
             .SearchAsync(CollectionName, Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>?>(), Arg.Any<CancellationToken>())
@@ -106,7 +128,7 @@ public class HybridRetrieverTests
     [Fact]
     public async Task RetrieveAsync_TopK_LimitsOutput()
     {
-        var (retriever, vectorStore, _, chunkRepo) = Build();
+        var (retriever, vectorStore, _, chunkRepo, _) = Build();
 
         // 5 vector results
         vectorStore
@@ -127,7 +149,7 @@ public class HybridRetrieverTests
     [Fact]
     public async Task RetrieveAsync_ResultsOrderedByFusionScoreDescending()
     {
-        var (retriever, vectorStore, _, chunkRepo) = Build();
+        var (retriever, vectorStore, _, chunkRepo, _) = Build();
 
         vectorStore
             .SearchAsync(CollectionName, Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>?>(), Arg.Any<CancellationToken>())
@@ -172,7 +194,7 @@ public class HybridRetrieverTests
         // v1 leads on vector score; v2 will win on BM25 → expect RRF to elevate v2.
         const string query = "manufacturing quality control";
 
-        var (retriever, vectorStore, _, chunkRepo) = Build();
+        var (retriever, vectorStore, _, chunkRepo, _) = Build();
 
         vectorStore
             .SearchAsync(CollectionName, Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>?>(), Arg.Any<CancellationToken>())
@@ -209,7 +231,7 @@ public class HybridRetrieverTests
         // Expected FusionScore ≈ 1/(60+1) + 1/(60+1) = 2/61 ≈ 0.03279
         const string query = "process quality inspection";
 
-        var (retriever, vectorStore, _, chunkRepo) = Build();
+        var (retriever, vectorStore, _, chunkRepo, _) = Build();
 
         vectorStore
             .SearchAsync(CollectionName, Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>?>(), Arg.Any<CancellationToken>())
@@ -241,7 +263,7 @@ public class HybridRetrieverTests
     public async Task RetrieveAsync_ChunkContent_MappedFromDatabase()
     {
         const string expectedContent = "This is the verbatim chunk content from the database.";
-        var (retriever, vectorStore, _, chunkRepo) = Build();
+        var (retriever, vectorStore, _, chunkRepo, _) = Build();
 
         vectorStore
             .SearchAsync(CollectionName, Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>?>(), Arg.Any<CancellationToken>())
@@ -259,7 +281,7 @@ public class HybridRetrieverTests
     [Fact]
     public async Task RetrieveAsync_VectorAndBM25Scores_BothPopulatedInResult()
     {
-        var (retriever, vectorStore, _, chunkRepo) = Build();
+        var (retriever, vectorStore, _, chunkRepo, _) = Build();
 
         vectorStore
             .SearchAsync(CollectionName, Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<Dictionary<string, object>?>(), Arg.Any<CancellationToken>())

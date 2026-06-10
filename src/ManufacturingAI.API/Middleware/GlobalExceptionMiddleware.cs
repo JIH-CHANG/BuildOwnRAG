@@ -28,6 +28,7 @@ public class GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExcep
             UnauthorizedAccessException => HttpStatusCode.Unauthorized,
             KeyNotFoundException => HttpStatusCode.NotFound,
             ArgumentException => HttpStatusCode.BadRequest,
+            MigrationInProgressException => HttpStatusCode.ServiceUnavailable,
             _ => HttpStatusCode.InternalServerError
         };
 
