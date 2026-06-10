@@ -7,6 +7,27 @@ LLM/embedding providers (OpenAI, Azure OpenAI, Google Gemini, Ollama, Groq, Anth
 
 ---
 
+## RAGAS Score
+
+Answer quality is evaluated with [RAGAS](https://docs.ragas.io/) against a 10-question test set
+queried through the live API (5 retrieved contexts per question).
+
+![RAGAS evaluation results](Images/RAGasScore_20260611.jpg)
+
+| Metric | Score |
+|---|---|
+| Faithfulness | 0.9457 |
+| Answer Relevancy | 0.8991 |
+| Context Precision (LLM, without reference) | 0.6204 |
+
+Evaluation conditions:
+
+- LLM: `gemini-2.5-flash`
+- Embedding model: `gemini-embedding-001`
+- Retrieval: Hybrid mode (Qdrant vector search + BM25 + RRF), TopK = 5
+
+---
+
 ## Highlights
 
 - Two retrieval modes, selectable per tenant:
@@ -32,13 +53,12 @@ This section is intentionally explicit so the repository does not overstate what
 - [x] JWT auth, per-tenant isolation, query logging, and Redis caching
 - [x] First-run setup wizard and Docker Compose deployment
 - [x] Cosine reranker (default); Cohere reranker optional (needs API key, falls back to cosine)
+- [x] Analytics dashboard UI, The analytics backend is implemented, but the frontend dashboard page is still missing.
 
 ## TODO
 
 - [ ] Connectors other than Folder  
   SharePoint, Confluence, Google Drive, and Arena are scaffolded only and are not functional yet.
-- [ ] Analytics dashboard UI  
-  The analytics backend is implemented, but the frontend dashboard page is still missing.
 - [ ] Production observability  
   Production-grade observability is not in place yet. Prometheus, Grafana, and Loki still need to be integrated; currently only the Aspire dashboard is available for development-time diagnostics.
 - [ ] Broader test coverage  
@@ -116,6 +136,24 @@ Default service ports:
 On first start the API waits for PostgreSQL, applies EF Core migrations, ensures the Qdrant
 collection exists, and seeds a default tenant and admin user. The startup banner prints the
 admin email and password. Open http://localhost:3000 to sign in.
+
+### Setup wizard
+
+For a guided first-time install, start with the setup profile and open http://localhost:8081:
+
+```
+docker compose --profile setup up -d
+```
+
+The wizard walks through four short steps — Services, AI Provider, Admin Account, Install.
+Service connection fields are pre-filled with the Docker Compose defaults, so a standard
+install is just "Test Connections" and Next:
+
+![Setup wizard — service connections step](Images/Setup.jpg)
+
+When the wizard finishes, the stack is ready and you can sign in at http://localhost:3000:
+
+![Login page](Images/Login.jpg)
 
 ### Local development (without Docker)
 
