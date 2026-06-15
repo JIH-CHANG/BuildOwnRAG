@@ -117,9 +117,20 @@ try
         options.RejectionStatusCode = 429;
     });
 
+    var allowedOrigins = config["AllowedOrigins"];
     builder.Services.AddCors(options =>
         options.AddDefaultPolicy(policy =>
-            policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+        {
+            if (string.IsNullOrWhiteSpace(allowedOrigins) || allowedOrigins == "*")
+            {
+                policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+            }
+            else
+            {
+                var origins = allowedOrigins.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                policy.WithOrigins(origins).AllowAnyMethod().AllowAnyHeader();
+            }
+        }));
 
     builder.Services.AddHttpClient();
     builder.Services.AddControllers();
