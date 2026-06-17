@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import {
   Badge,
   Button,
@@ -9,9 +9,13 @@ import {
   ToastContainer,
 } from "@/components/ui";
 import { ingestApi } from "@/api/ingest";
+import { connectorsApi } from "@/api/connectors";
 import { getErrorMessage } from "@/api/client";
 import { useToast } from "@/hooks/useToast";
 import type { ConnectorSyncStatus, SyncStatus } from "@/types";
+import { AddConnectorModal } from "./AddConnectorModal";
+import { EditConnectorModal } from "./EditConnectorModal";
+import { syncIntervalLabel } from "./connectorFields";
 
 function StatusBadge({ status }: { status: SyncStatus }) {
   switch (status) {
@@ -45,6 +49,8 @@ export function ConnectorsPage() {
   const qc = useQueryClient();
   const { toasts, toast, dismiss } = useToast();
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["ingest-status"],
@@ -70,6 +76,20 @@ export function ConnectorsPage() {
     triggerMut.mutate(connectorId);
   };
 
+  const deleteMut = useMutation({
+    mutationFn: (connectorId: string) => connectorsApi.remove(connectorId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ingest-status"] });
+      toast.success("Connector deleted");
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const handleDelete = (connector: ConnectorSyncStatus) => {
+    if (window.confirm(`Delete connector “${connector.displayName}”? This cannot be undone.`))
+      deleteMut.mutate(connector.connectorId);
+  };
+
   const connectors = data?.connectors ?? [];
 
   return (
@@ -81,15 +101,21 @@ export function ConnectorsPage() {
             Manage document sources and sync status
           </p>
         </div>
-        <Button
-          size="sm"
-          onClick={() => handleTrigger()}
-          loading={triggerMut.isPending && triggeringId === "all"}
-          disabled={triggerMut.isPending}
-        >
-          <RefreshCw size={14} />
-          Sync All
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setAddOpen(true)}>
+            <Plus size={14} />
+            Add Connector
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => handleTrigger()}
+            loading={triggerMut.isPending && triggeringId === "all"}
+            disabled={triggerMut.isPending}
+          >
+            <RefreshCw size={14} />
+            Sync All
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -102,8 +128,7 @@ export function ConnectorsPage() {
         <div className="flex flex-col items-center justify-center rounded-lg border border-surface-border py-16 text-center">
           <p className="text-sm text-slate-400">No connectors configured.</p>
           <p className="mt-1 text-xs text-slate-500">
-            Contact your administrator to add document sources via the Setup
-            Wizard.
+            Use “Add Connector” to connect a Google Drive folder or a local folder.
           </p>
         </div>
       ) : (
@@ -113,6 +138,7 @@ export function ConnectorsPage() {
               <tr className="border-b border-surface-border text-left text-xs text-slate-500">
                 <th className="pb-2 pr-4 font-medium">Name</th>
                 <th className="pb-2 pr-4 font-medium">Type</th>
+                <th className="pb-2 pr-4 font-medium">Schedule</th>
                 <th className="pb-2 pr-4 font-medium">Status</th>
                 <th className="pb-2 pr-4 font-medium">Last Sync</th>
                 <th className="pb-2 font-medium" />
@@ -124,8 +150,13 @@ export function ConnectorsPage() {
                   key={c.connectorId}
                   connector={c}
                   onSync={() => handleTrigger(c.connectorId)}
+                  onEdit={() => setEditId(c.connectorId)}
+                  onDelete={() => handleDelete(c)}
                   isSyncing={
                     triggerMut.isPending && triggeringId === c.connectorId
+                  }
+                  isDeleting={
+                    deleteMut.isPending && deleteMut.variables === c.connectorId
                   }
                   disabled={triggerMut.isPending}
                 />
@@ -148,6 +179,26 @@ export function ConnectorsPage() {
         </>
       )}
 
+      <AddConnectorModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onResult={(success, message) => {
+          void qc.invalidateQueries({ queryKey: ["ingest-status"] });
+          if (success) toast.success(`Connector added — ${message}`);
+          else toast.error(`Connector added but test failed — ${message}`);
+        }}
+      />
+
+      <EditConnectorModal
+        connectorId={editId}
+        onClose={() => setEditId(null)}
+        onResult={(success, message) => {
+          void qc.invalidateQueries({ queryKey: ["ingest-status"] });
+          if (success) toast.success(message);
+          else toast.error(`Saved but test failed — ${message}`);
+        }}
+      />
+
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
   );
@@ -156,12 +207,18 @@ export function ConnectorsPage() {
 function ConnectorRow({
   connector,
   onSync,
+  onEdit,
+  onDelete,
   isSyncing,
+  isDeleting,
   disabled,
 }: {
   connector: ConnectorSyncStatus;
   onSync: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
   isSyncing: boolean;
+  isDeleting: boolean;
   disabled: boolean;
 }) {
   return (
@@ -171,6 +228,11 @@ function ConnectorRow({
       </td>
       <td className="py-3 pr-4">
         <Badge variant="muted">{connector.connectorType}</Badge>
+      </td>
+      <td className="py-3 pr-4 text-slate-400">
+        {connector.syncIntervalMinutes > 0
+          ? syncIntervalLabel(connector.syncIntervalMinutes)
+          : "Manual only"}
       </td>
       <td className="py-3 pr-4">
         <StatusBadge status={connector.status} />
@@ -196,6 +258,25 @@ function ConnectorRow({
             disabled={disabled}
           >
             Sync
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onEdit}
+            disabled={disabled || isDeleting}
+            aria-label="Edit connector"
+          >
+            <Pencil size={14} />
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={onDelete}
+            loading={isDeleting}
+            disabled={disabled}
+            aria-label="Delete connector"
+          >
+            <Trash2 size={14} />
           </Button>
         </div>
       </td>

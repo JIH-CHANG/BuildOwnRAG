@@ -17,7 +17,8 @@ public record ConnectorSyncStatus(
     string ConnectorType,
     SyncStatus Status,
     DateTime? LastSyncedAt,
-    string? ErrorMessage
+    string? ErrorMessage,
+    int SyncIntervalMinutes
 );
 
 public interface IIngestService

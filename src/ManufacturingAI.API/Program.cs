@@ -5,6 +5,7 @@ using ManufacturingAI.API.Auth;
 using ManufacturingAI.API.Middleware;
 using ManufacturingAI.API.Workers;
 using ManufacturingAI.Connectors.Folder;
+using ManufacturingAI.Connectors.GoogleDrive;
 using ManufacturingAI.Core.Configuration;
 using ManufacturingAI.Core.Models;
 using ManufacturingAI.Core.RAG;
@@ -67,6 +68,7 @@ try
 
     // Connector implementations
     builder.Services.AddFolderConnector();
+    builder.Services.AddGoogleDriveConnector();
 
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>

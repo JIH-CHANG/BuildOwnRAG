@@ -7,6 +7,10 @@
   <ItemGroup>
     <ProjectReference Include="..\ManufacturingAI.Core\ManufacturingAI.Core.csproj" />
     <ProjectReference Include="..\ManufacturingAI.Core.Connectors\ManufacturingAI.Core.Connectors.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Infrastructure\ManufacturingAI.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Google.Apis.Drive.v3" Version="1.74.0.4135" />
   </ItemGroup>
 
 </Project>

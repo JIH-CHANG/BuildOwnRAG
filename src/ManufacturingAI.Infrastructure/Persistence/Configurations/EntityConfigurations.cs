@@ -103,7 +103,8 @@ public class ConnectorConfigConfiguration : IEntityTypeConfiguration<ConnectorCo
         builder.HasIndex(c => c.TenantId);
         builder.Property(c => c.ConnectorType).HasMaxLength(64).IsRequired();
         builder.Property(c => c.DisplayName).HasMaxLength(256).IsRequired();
-        builder.Property(c => c.SettingsJson).HasColumnType("text"); // AES-256 加密內容
+        builder.Property(c => c.SettingsJson).HasColumnType("text"); // the content which is encrypted by AES-256
+        builder.Property(c => c.SyncIntervalMinutes).HasDefaultValue(60);
     }
 }
 

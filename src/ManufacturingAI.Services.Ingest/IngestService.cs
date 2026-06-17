@@ -67,7 +67,8 @@ public class IngestService(
                 ConnectorType: connector.ConnectorType,
                 Status: latest?.Status ?? SyncStatus.Pending,
                 LastSyncedAt: latest?.LastSyncedAt,
-                ErrorMessage: latest?.ErrorMessage));
+                ErrorMessage: latest?.ErrorMessage,
+                SyncIntervalMinutes: connector.SyncIntervalMinutes));
         }
 
         int runningJobs = statuses.Count(s => s.Status == SyncStatus.Running);

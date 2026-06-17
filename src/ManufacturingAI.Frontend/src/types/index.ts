@@ -165,6 +165,7 @@ export interface ConnectorSyncStatus {
   status: SyncStatus;
   lastSyncedAt?: string;
   errorMessage?: string;
+  syncIntervalMinutes: number;
 }
 
 export interface SyncStatusResult {

@@ -3,6 +3,7 @@ using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
 using ManufacturingAI.Infrastructure.LLM;
 using ManufacturingAI.Infrastructure.Persistence;
+using ManufacturingAI.Infrastructure.Repositories;
 using ManufacturingAI.Infrastructure.Security;
 using ManufacturingAI.Services.Ingest;
 using Microsoft.EntityFrameworkCore;
@@ -27,7 +28,7 @@ internal static class StartupInitializer
 
             await WaitForPostgresAsync(db, logger);
             await RunMigrationAsync(db, logger);
-            RegisterRecurringJobs(scope.ServiceProvider, logger);
+            await RegisterRecurringJobsAsync(scope.ServiceProvider, logger);
             await EnsureQdrantCollectionAsync(vectorStore, config, logger);
             var (adminEmail, isCustom) = await SeedDefaultDataAsync(db, config, logger);
             await InitLlmRuntimeConfigAsync(db, scope.ServiceProvider, logger);
@@ -81,13 +82,16 @@ internal static class StartupInitializer
 
     // ── Step 2b: Hangfire recurring jobs (after PostgreSQL is ready) ─
 
-    private static void RegisterRecurringJobs(IServiceProvider services, ILogger logger)
+    private static async Task RegisterRecurringJobsAsync(IServiceProvider services, ILogger logger)
     {
         try
         {
             var manager = services.GetRequiredService<IRecurringJobManager>();
-            DependencyInjection.RegisterRecurringJobs(manager);
-            logger.LogInformation("Hangfire recurring jobs registered");
+            var connectorRepository = services.GetRequiredService<IConnectorConfigRepository>();
+            var enabled = (await connectorRepository.GetAllEnabledAsync()).ToList();
+            DependencyInjection.RegisterRecurringJobs(manager, enabled);
+            logger.LogInformation(
+                "Hangfire recurring jobs registered for {Count} connector(s)", enabled.Count);
         }
         catch (Exception ex)
         {
