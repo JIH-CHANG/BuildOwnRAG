@@ -8,6 +8,7 @@ using ManufacturingAI.Infrastructure.Repositories;
 using ManufacturingAI.Infrastructure.Security;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using Change = Google.Apis.Drive.v3.Data.Change;
 using DriveFile = Google.Apis.Drive.v3.Data.File;
 
 namespace ManufacturingAI.Connectors.GoogleDrive;
@@ -21,6 +22,11 @@ public sealed class GoogleDriveConnector(
 
     private const string ApplicationName = "ManufacturingAI RAG";
     private const string FolderMime = "application/vnd.google-apps.folder";
+
+    // Reserved SyncState row (per connector) that stores the Drive changes cursor in its
+    // VersionHash. The "__" prefix marks it as internal bookkeeping so status aggregation
+    // (IngestService.GetSyncStatusAsync) skips it; the value never collides with a real file ID.
+    private const string PageTokenSourceId = "__drive_page_token__";
 
     // Drive query fragment: exclude trashed items and folders themselves.
     private const string NotTrashedFiles = "trashed = false and mimeType != '" + FolderMime + "'";
@@ -128,13 +134,42 @@ public sealed class GoogleDriveConnector(
         DateTimeOffset? since,
         CancellationToken ct = default)
     {
-        // Full metadata crawl of the folder (`since` is not used — the Drive changes API +
-        // stored page token for true incremental listing is future work). Listing returns only
-        // metadata, so the crawl is cheap; the expensive part is downloading content, which the
-        // hash filter below avoids for unchanged files.
+        // `since` is intentionally ignored: the persisted Drive changes page token (below) is the
+        // authoritative incremental cursor, so a wall-clock timestamp would only be redundant.
         var settings = Deserialize(config);
         var service = CreateService(settings);
         var maxBytes = (long)settings.MaxFileSizeMB * 1_048_576L;
+
+        var syncStates = (await syncStateRepository.GetByConnectorAsync(config.Id, ct)).ToList();
+        var tokenRow = syncStates.FirstOrDefault(s => s.SourceId == PageTokenSourceId);
+
+        // No stored cursor → first run: capture a start token, persist it, then seed via a full crawl.
+        if (string.IsNullOrWhiteSpace(tokenRow?.VersionHash))
+            return await SeedAsync(service, settings, config, syncStates, maxBytes, ct);
+
+        // Stored cursor present → ask Drive only for what changed since, and advance the cursor.
+        return await FetchChangesAsync(service, settings, config, tokenRow.VersionHash, maxBytes, ct);
+    }
+
+    // First sync: record where "now" is in Drive's change stream, then index everything currently
+    // in the folder. The start token is captured and persisted *before* the crawl so edits made
+    // during the (potentially long) seed are still caught by the next incremental run.
+    private async Task<IEnumerable<SourceDocument>> SeedAsync(
+        DriveService service, GoogleDriveConnectorSettings settings, ConnectorConfig config,
+        IReadOnlyList<SyncState> syncStates, long maxBytes, CancellationToken ct)
+    {
+        try
+        {
+            var tokenReq = service.Changes.GetStartPageToken();
+            tokenReq.SupportsAllDrives = true;
+            var startToken = (await tokenReq.ExecuteAsync(ct)).StartPageTokenValue;
+            await PersistPageTokenAsync(config, startToken, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "GoogleDrive: could not obtain start page token for connector {ConnectorId}", config.Id);
+            return [];
+        }
 
         List<DriveFile> files;
         try
@@ -147,10 +182,10 @@ public sealed class GoogleDriveConnector(
             return [];
         }
 
-        // Hash lookup of already-indexed files (ConnectorId-scoped). md5Checksum / version come
-        // straight from the listing metadata, so an unchanged file is skipped without ever
-        // downloading its content.
-        var syncStates = await syncStateRepository.GetByConnectorAsync(config.Id, ct);
+        // Skip files already indexed at the same hash. Irrelevant on a genuine first run (no rows),
+        // but lets a connector upgraded from the old full-crawl behaviour seed without re-downloading
+        // everything it already has. md5Checksum / version come from listing metadata, so unchanged
+        // files are skipped without any content download.
         var knownHashes = syncStates
             .Where(s => s.Status == SyncStatus.Completed)
             .ToDictionary(s => s.SourceId, s => s.VersionHash, StringComparer.Ordinal);
@@ -160,13 +195,83 @@ public sealed class GoogleDriveConnector(
             .ToList();
 
         logger.LogInformation(
-            "GoogleDriveConnector [{ConnectorId}]: {Changed} changed / {Total} candidate file(s)",
+            "GoogleDriveConnector [{ConnectorId}] seed: {Changed} new / {Total} file(s); start token stored.",
             config.Id, changed.Count, files.Count);
 
-        // Lazily materialize each changed document: content is downloaded only as the consumer
-        // pulls it (SyncSchedulerJob disposes each stream before moving on), so memory stays at
-        // ~one file.
+        // Lazily materialize each document: content is downloaded only as the consumer pulls it
+        // (SyncSchedulerJob disposes each stream before moving on), so memory stays at ~one file.
         return BuildDocuments(service, changed, maxBytes, ct);
+    }
+
+    // Incremental sync: pull Drive's change feed from the stored cursor and map only the
+    // added/modified files in scope. Deletions/trashing are out of scope for now (the connector
+    // interface has no delete signal yet — see the deletion follow-up in tasks/todo.md).
+    private async Task<IEnumerable<SourceDocument>> FetchChangesAsync(
+        DriveService service, GoogleDriveConnectorSettings settings, ConnectorConfig config,
+        string pageToken, long maxBytes, CancellationToken ct)
+    {
+        var changedFiles = new List<DriveFile>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var scopeCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+        string? newStartToken;
+
+        try
+        {
+            var token = pageToken;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                var req = service.Changes.List(token);
+                req.Fields =
+                    $"nextPageToken, newStartPageToken, changes(removed, file({FileFields}, trashed, parents))";
+                req.PageSize = 1000;
+                req.SupportsAllDrives = true;
+                req.IncludeItemsFromAllDrives = true;
+                req.Spaces = "drive";
+
+                var resp = await req.ExecuteAsync(ct);
+
+                foreach (var change in resp.Changes ?? Enumerable.Empty<Change>())
+                {
+                    var file = change.File;
+                    if (change.Removed == true || file is null || file.Trashed == true || file.MimeType == FolderMime)
+                        continue;
+                    if (!seen.Add(file.Id))               // a file can appear in several change records
+                        continue;
+                    if (!await IsWithinRootAsync(service, file, settings, scopeCache, ct))
+                        continue;
+
+                    changedFiles.Add(file);
+                }
+
+                // Drive returns NextPageToken until the last page, then NewStartPageToken (the
+                // cursor to store for next time).
+                if (!string.IsNullOrEmpty(resp.NextPageToken))
+                {
+                    token = resp.NextPageToken;
+                    continue;
+                }
+                newStartToken = resp.NewStartPageToken;
+                break;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "GoogleDrive changes.list failed for connector {ConnectorId}", config.Id);
+            return [];
+        }
+
+        // Advance the cursor once the whole change set is collected. Downloads still happen lazily
+        // below; a per-file download failure is skipped (as in the seed crawl), so we deliberately
+        // do not gate the cursor on download success.
+        if (!string.IsNullOrEmpty(newStartToken))
+            await PersistPageTokenAsync(config, newStartToken, ct);
+
+        logger.LogInformation(
+            "GoogleDriveConnector [{ConnectorId}] delta: {Count} changed file(s); cursor advanced.",
+            config.Id, changedFiles.Count);
+
+        return BuildDocuments(service, changedFiles, maxBytes, ct);
     }
 
     // ── Crawl ────────────────────────────────────────────────
@@ -293,6 +398,87 @@ public sealed class GoogleDriveConnector(
         !string.IsNullOrEmpty(file.Md5Checksum)
             ? file.Md5Checksum
             : file.Version?.ToString() ?? string.Empty;
+
+    // ── Change cursor + scope helpers ────────────────────────
+
+    // Persists (upserts) the Drive changes cursor into the reserved sentinel SyncState row.
+    private async Task PersistPageTokenAsync(ConnectorConfig config, string token, CancellationToken ct)
+    {
+        var result = await syncStateRepository.UpsertAsync(new SyncState
+        {
+            Id = Guid.NewGuid(),
+            TenantId = config.TenantId,
+            ConnectorId = config.Id,
+            SourceId = PageTokenSourceId,
+            VersionHash = token,
+            Status = SyncStatus.Completed,
+            LastSyncedAt = DateTime.UtcNow,
+            ErrorMessage = string.Empty,
+        }, ct);
+
+        if (!result.Success)
+            logger.LogWarning("GoogleDrive: failed to persist page token for connector {ConnectorId}: {Error}",
+                config.Id, result.Error);
+    }
+
+    // True when the file lives inside the configured root folder (or, when IncludeSubfolders is on,
+    // anywhere beneath it). The change feed spans the whole drive, so this filters out files the
+    // service account can see that aren't part of this connector's folder.
+    private async Task<bool> IsWithinRootAsync(
+        DriveService service, DriveFile file, GoogleDriveConnectorSettings settings,
+        Dictionary<string, bool> scopeCache, CancellationToken ct)
+    {
+        foreach (var parent in file.Parents ?? Enumerable.Empty<string>())
+        {
+            if (await IsFolderWithinRootAsync(service, parent, settings, scopeCache, ct))
+                return true;
+        }
+        return false;
+    }
+
+    // Walks a folder's ancestry (following the first parent each step) until it reaches the root
+    // folder or runs out. Results for every folder on the path are memoized in scopeCache so a
+    // deep tree is resolved at most once per sync.
+    private async Task<bool> IsFolderWithinRootAsync(
+        DriveService service, string folderId, GoogleDriveConnectorSettings settings,
+        Dictionary<string, bool> scopeCache, CancellationToken ct)
+    {
+        if (folderId == settings.RootFolderId) return true;
+        if (!settings.IncludeSubfolders) return false;
+        if (scopeCache.TryGetValue(folderId, out var cached)) return cached;
+
+        var path = new List<string>();
+        var current = folderId;
+        bool result = false;
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (current == settings.RootFolderId) { result = true; break; }
+            if (scopeCache.TryGetValue(current, out var c)) { result = c; break; }
+            path.Add(current);
+
+            DriveFile folder;
+            try
+            {
+                var req = service.Files.Get(current);
+                req.Fields = "id, parents";
+                req.SupportsAllDrives = true;
+                folder = await req.ExecuteAsync(ct);
+            }
+            catch
+            {
+                break; // unreachable parent → treat as out of scope
+            }
+
+            var parents = folder.Parents;
+            if (parents is null || parents.Count == 0) break; // reached a root we don't own
+            current = parents[0];
+        }
+
+        foreach (var f in path) scopeCache[f] = result;
+        return result;
+    }
 
     // ── Download helpers (synchronous: invoked lazily during consumer enumeration) ──
 

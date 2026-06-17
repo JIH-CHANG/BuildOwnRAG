@@ -58,6 +58,9 @@ public class IngestService(
         {
             var syncStates = await syncStateRepository.GetByConnectorAsync(connector.Id, ct);
             var latest = syncStates
+                // Skip internal bookkeeping rows (e.g. a connector's "__"-prefixed change cursor),
+                // which aren't real documents and would otherwise masquerade as the latest sync.
+                .Where(s => !s.SourceId.StartsWith("__", StringComparison.Ordinal))
                 .OrderByDescending(s => s.LastSyncedAt)
                 .FirstOrDefault();
 
