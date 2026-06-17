@@ -6,6 +6,7 @@ using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
 using ManufacturingAI.Infrastructure.Persistence;
 using ManufacturingAI.Infrastructure.Repositories;
+using ManufacturingAI.Infrastructure.Security;
 using ManufacturingAI.Infrastructure.VectorStore;
 using ManufacturingAI.Setup.Models;
 using Microsoft.EntityFrameworkCore;
@@ -170,6 +171,7 @@ public sealed class SetupService
         services.AddDbContext<ApplicationDbContext>(opt =>
             opt.UseNpgsql(state.PostgresConnectionString));
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+        services.AddSingleton<IEncryptionService, AesEncryptionService>();
         services.AddSingleton<QdrantClient>(_ =>
             new QdrantClient(state.QdrantHost, state.QdrantGrpcPort));
         services.AddSingleton<IVectorStore, QdrantVectorStore>();
@@ -178,6 +180,7 @@ public sealed class SetupService
         await using var sp    = services.BuildServiceProvider();
         await using var scope = sp.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var encryption = scope.ServiceProvider.GetRequiredService<IEncryptionService>();
 
         // Step 1 — Migration
         yield return new InstallProgress("migration", "running", "Running EF Core Migration...");
@@ -206,10 +209,10 @@ public sealed class SetupService
                     {
                         LLMProvider         = state.LlmProvider,
                         LLMModel            = state.LlmChatModel,
-                        LLMApiKey           = state.LlmApiKey,
+                        LLMApiKey           = encryption.EncryptSecret(state.LlmApiKey),
                         EmbeddingProvider   = state.EmbeddingProvider,
                         EmbeddingModel      = state.EmbeddingModel,
-                        EmbeddingApiKey     = state.EmbeddingApiKey,
+                        EmbeddingApiKey     = encryption.EncryptSecret(state.EmbeddingApiKey),
                         EmbeddingDimensions = state.EmbeddingDimensions,
                     }
                 });

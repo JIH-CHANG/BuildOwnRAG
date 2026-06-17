@@ -20,9 +20,9 @@ public class TenantSettings
     public int MaxConnectors { get; set; }
     public string LLMProvider { get; set; } = string.Empty;          // openai / azureopenai / gemini / ollama / groq
     public string LLMModel { get; set; } = string.Empty;
-    public string LLMApiKey { get; set; } = string.Empty;            // stored encrypted
+    public string LLMApiKey { get; set; } = string.Empty;            // AES-encrypted at rest (see IEncryptionService.EncryptSecret)
     public string EmbeddingProvider { get; set; } = string.Empty;    // openai / azureopenai / gemini / ollama (may differ from LLMProvider)
-    public string EmbeddingApiKey { get; set; } = string.Empty;      // only needed when EmbeddingProvider ≠ LLMProvider
+    public string EmbeddingApiKey { get; set; } = string.Empty;      // AES-encrypted at rest; only needed when EmbeddingProvider ≠ LLMProvider
     public string EmbeddingModel { get; set; } = string.Empty;
     // Recorded at collection creation; migration is triggered when this changes
     public int EmbeddingDimensions { get; set; }

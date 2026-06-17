@@ -5,6 +5,7 @@ using ManufacturingAI.Core.Models;
 using ManufacturingAI.Infrastructure.Caching;
 using ManufacturingAI.Infrastructure.LLM;
 using ManufacturingAI.Infrastructure.Repositories;
+using ManufacturingAI.Infrastructure.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Net.Http.Headers;
@@ -26,6 +27,7 @@ public class TenantSettingsController(
     IHttpClientFactory httpClientFactory,
     LlmRuntimeConfig runtimeConfig,
     ICacheService cache,
+    IEncryptionService encryption,
     IConfiguration config) : ControllerBase
 {
     [HttpGet("settings/ai-model")]
@@ -56,14 +58,14 @@ public class TenantSettingsController(
             ?? config["GEMINI_EMBEDDING_MODEL"]
             ?? string.Empty;
 
-        // API key stored as plaintext — show masked version for display only
-        var storedKey = tenant.Settings.LLMApiKey;
+        // Key is stored encrypted at rest — decrypt only to derive the masked display value.
+        var storedKey = encryption.DecryptSecret(tenant.Settings.LLMApiKey);
         var apiKeySet = !string.IsNullOrEmpty(storedKey);
         var apiKeyMasked = apiKeySet && storedKey.Length > 4
             ? "••••••••" + storedKey[^4..]
             : (apiKeySet ? "••••" : string.Empty);
 
-        var embeddingKey = tenant.Settings.EmbeddingApiKey;
+        var embeddingKey = encryption.DecryptSecret(tenant.Settings.EmbeddingApiKey);
         var embeddingApiKeySet = !string.IsNullOrEmpty(embeddingKey);
         var embeddingApiKeyMasked = embeddingApiKeySet && embeddingKey.Length > 4
             ? "••••••••" + embeddingKey[^4..]
@@ -96,11 +98,12 @@ public class TenantSettingsController(
         if (!string.IsNullOrEmpty(request.EmbeddingModel))
             tenant.Settings.EmbeddingModel = request.EmbeddingModel;
 
+        // Encrypt keys before they touch the DB (and, in turn, the Redis-cached tenant).
         if (request.ApiKey is not null)
-            tenant.Settings.LLMApiKey = request.ApiKey;
+            tenant.Settings.LLMApiKey = encryption.EncryptSecret(request.ApiKey);
 
         if (request.EmbeddingApiKey is not null)
-            tenant.Settings.EmbeddingApiKey = request.EmbeddingApiKey;
+            tenant.Settings.EmbeddingApiKey = encryption.EncryptSecret(request.EmbeddingApiKey);
 
         if (!string.IsNullOrEmpty(request.RetrievalMode) &&
             Enum.TryParse<RetrievalMode>(request.RetrievalMode, ignoreCase: true, out var mode))
@@ -118,8 +121,9 @@ public class TenantSettingsController(
         var activeModel             = NullIfEmpty(tenant.Settings.LLMModel)             ?? runtimeConfig.Model;
         var activeEmbeddingProvider = NullIfEmpty(tenant.Settings.EmbeddingProvider)    ?? runtimeConfig.EmbeddingProvider;
         var activeEmbeddingModel    = NullIfEmpty(tenant.Settings.EmbeddingModel)       ?? runtimeConfig.EmbeddingModel;
-        var activeKey               = NullIfEmpty(tenant.Settings.LLMApiKey)            ?? runtimeConfig.ApiKey;
-        var activeEmbeddingKey      = NullIfEmpty(tenant.Settings.EmbeddingApiKey)      ?? runtimeConfig.EmbeddingApiKey;
+        // Runtime config holds plaintext (in-memory only) — decrypt the stored ciphertext.
+        var activeKey               = NullIfEmpty(encryption.DecryptSecret(tenant.Settings.LLMApiKey))       ?? runtimeConfig.ApiKey;
+        var activeEmbeddingKey      = NullIfEmpty(encryption.DecryptSecret(tenant.Settings.EmbeddingApiKey)) ?? runtimeConfig.EmbeddingApiKey;
 
         runtimeConfig.Update(activeProvider, activeKey, activeModel, activeEmbeddingModel, activeEmbeddingProvider, activeEmbeddingKey);
 
@@ -179,9 +183,11 @@ public class TenantSettingsController(
         // the embedding provider and a dedicated embedding key exists, use it; otherwise the
         // LLM key (which the embedding provider also reuses when it matches the LLM provider).
         var embeddingProvider = (tenant.Settings.EmbeddingProvider ?? "").ToLowerInvariant();
-        var apiKey = effectiveProvider == embeddingProvider && !string.IsNullOrEmpty(tenant.Settings.EmbeddingApiKey)
-            ? tenant.Settings.EmbeddingApiKey
-            : tenant.Settings.LLMApiKey;
+        var llmKey = encryption.DecryptSecret(tenant.Settings.LLMApiKey);
+        var dedicatedEmbeddingKey = encryption.DecryptSecret(tenant.Settings.EmbeddingApiKey);
+        var apiKey = effectiveProvider == embeddingProvider && !string.IsNullOrEmpty(dedicatedEmbeddingKey)
+            ? dedicatedEmbeddingKey
+            : llmKey;
 
         IEnumerable<string> models = (effectiveProvider, isEmbedding) switch
         {

@@ -16,10 +16,10 @@ public static class DependencyInjection
         services.AddScoped<ILiteRetriever, LiteRetriever>();
         services.AddScoped<IQueryOrchestrator, QueryOrchestrator>();
 
-        // Free tier: cosine similarity rerank (sorts by VectorScore already returned by Qdrant)
+        // cosine similarity rerank (sorts by VectorScore already returned by Qdrant)
         services.AddSingleton<CosineSimilarityReranker>();
 
-        // Paid tier: Cohere Rerank API (one call for all chunks); falls back to cosine on error
+        // Cohere Rerank API (one call for all chunks); falls back to cosine on error
         var cohereApiKey = config["Cohere:ApiKey"] ?? string.Empty;
         services.AddHttpClient<CohereReranker>(client =>
         {

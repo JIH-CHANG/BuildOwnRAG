@@ -6,6 +6,10 @@ namespace ManufacturingAI.Infrastructure.Security;
 
 public class AesEncryptionService : IEncryptionService
 {
+    // Tags ciphertext produced by EncryptSecret so DecryptSecret can tell it apart
+    // from legacy plaintext API keys stored before encryption was added.
+    private const string SecretPrefix = "enc:v1:";
+
     private readonly byte[] _key;
     private readonly byte[] _iv;
 
@@ -43,5 +47,16 @@ public class AesEncryptionService : IEncryptionService
         var cipherBytes = Convert.FromBase64String(cipherText);
         var plainBytes = decryptor.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
         return Encoding.UTF8.GetString(plainBytes);
+    }
+
+    public string EncryptSecret(string? plainText)
+        => string.IsNullOrEmpty(plainText) ? string.Empty : SecretPrefix + Encrypt(plainText);
+
+    public string DecryptSecret(string? storedValue)
+    {
+        if (string.IsNullOrEmpty(storedValue)) return string.Empty;
+        return storedValue.StartsWith(SecretPrefix, StringComparison.Ordinal)
+            ? Decrypt(storedValue[SecretPrefix.Length..])
+            : storedValue; // legacy plaintext written before encryption was added
     }
 }

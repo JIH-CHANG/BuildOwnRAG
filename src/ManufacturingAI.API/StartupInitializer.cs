@@ -244,9 +244,10 @@ internal static class StartupInitializer
             if (tenant is null) return;
 
             var cfg = sp.GetRequiredService<IConfiguration>();
+            var encryption = sp.GetRequiredService<IEncryptionService>();
 
-            // API key stored as plaintext
-            var rawApiKey = tenant.Settings.LLMApiKey;
+            // Keys are stored encrypted at rest; runtime config holds plaintext (in-memory).
+            var rawApiKey = encryption.DecryptSecret(tenant.Settings.LLMApiKey);
 
             static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
@@ -261,7 +262,7 @@ internal static class StartupInitializer
 
             var embeddingModel    = NullIfEmpty(tenant.Settings.EmbeddingModel)    ?? string.Empty;
             var embeddingProvider = NullIfEmpty(tenant.Settings.EmbeddingProvider) ?? string.Empty;
-            var embeddingApiKey   = NullIfEmpty(tenant.Settings.EmbeddingApiKey)   ?? string.Empty;
+            var embeddingApiKey   = NullIfEmpty(encryption.DecryptSecret(tenant.Settings.EmbeddingApiKey)) ?? string.Empty;
 
             var runtimeConfig = sp.GetRequiredService<LlmRuntimeConfig>();
             runtimeConfig.Update(provider, rawApiKey, model, embeddingModel, embeddingProvider, embeddingApiKey);
