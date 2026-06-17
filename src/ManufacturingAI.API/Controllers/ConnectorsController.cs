@@ -4,13 +4,19 @@ using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
 using ManufacturingAI.Infrastructure.Repositories;
 using ManufacturingAI.Infrastructure.Security;
+using ManufacturingAI.Services.Ingest;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ManufacturingAI.API.Controllers;
 
-public record CreateConnectorRequest(string ConnectorType, string DisplayName, string SettingsJson);
-public record UpdateConnectorRequest(string DisplayName, bool IsEnabled, string SettingsJson);
+// SyncIntervalMinutes controls how often the connector auto-syncs (0 = manual only).
+public record CreateConnectorRequest(
+    string ConnectorType, string DisplayName, string SettingsJson, int SyncIntervalMinutes = 60);
+// SettingsJson is optional: when null/blank the existing (encrypted) settings are preserved,
+// so renaming or enabling/disabling a connector doesn't require re-entering secrets.
+public record UpdateConnectorRequest(
+    string DisplayName, bool IsEnabled, string? SettingsJson = null, int SyncIntervalMinutes = 60);
 
 [ApiController]
 [Route("api/v1/connectors")]
@@ -18,7 +24,8 @@ public record UpdateConnectorRequest(string DisplayName, bool IsEnabled, string 
 public class ConnectorsController(
     IConnectorConfigRepository connectorRepository,
     IEnumerable<IKnowledgeConnector> knowledgeConnectors,
-    IEncryptionService encryption) : ControllerBase
+    IEncryptionService encryption,
+    ConnectorSyncScheduler syncScheduler) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<ApiResponse<IEnumerable<ConnectorConfig>>>> GetAll(CancellationToken ct)
@@ -41,13 +48,16 @@ public class ConnectorsController(
             DisplayName = request.DisplayName,
             IsEnabled = true,
             SettingsJson = encryption.Encrypt(request.SettingsJson),
+            SyncIntervalMinutes = request.SyncIntervalMinutes,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
         var result = await connectorRepository.AddAsync(entity, ct);
-        return result.Success
-            ? Ok(this.ApiOk(result.Value))
-            : BadRequest(this.ApiFail(result.Error!));
+        if (!result.Success)
+            return BadRequest(this.ApiFail(result.Error!));
+
+        syncScheduler.Schedule(entity.Id, entity.SyncIntervalMinutes);
+        return Ok(this.ApiOk(result.Value));
     }
 
     [HttpGet("{id:guid}")]
@@ -69,13 +79,22 @@ public class ConnectorsController(
 
         connector.DisplayName = request.DisplayName;
         connector.IsEnabled = request.IsEnabled;
-        connector.SettingsJson = encryption.Encrypt(request.SettingsJson);
+        connector.SyncIntervalMinutes = request.SyncIntervalMinutes;
+        if (!string.IsNullOrWhiteSpace(request.SettingsJson))
+            connector.SettingsJson = encryption.Encrypt(request.SettingsJson);
         connector.UpdatedAt = DateTime.UtcNow;
 
         var result = await connectorRepository.UpdateAsync(connector, ct);
-        return result.Success
-            ? Ok(new ApiResponse(true, null, this.GetTraceId()))
-            : BadRequest(this.ApiFail(result.Error!));
+        if (!result.Success)
+            return BadRequest(this.ApiFail(result.Error!));
+
+        // Re-apply the schedule: a disabled connector or a 0 interval clears it.
+        if (connector.IsEnabled)
+            syncScheduler.Schedule(connector.Id, connector.SyncIntervalMinutes);
+        else
+            syncScheduler.Remove(connector.Id);
+
+        return Ok(new ApiResponse(true, null, this.GetTraceId()));
     }
 
     [HttpDelete("{id:guid}")]
@@ -86,9 +105,11 @@ public class ConnectorsController(
             return NotFound(this.ApiFail("Connector not found."));
 
         var result = await connectorRepository.DeleteAsync(id, ct);
-        return result.Success
-            ? Ok(new ApiResponse(true, null, this.GetTraceId()))
-            : BadRequest(this.ApiFail(result.Error!));
+        if (!result.Success)
+            return BadRequest(this.ApiFail(result.Error!));
+
+        syncScheduler.Remove(id);
+        return Ok(new ApiResponse(true, null, this.GetTraceId()));
     }
 
     [HttpPost("{id:guid}/test")]

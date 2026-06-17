@@ -12,24 +12,28 @@ public class SyncSchedulerJob(
     IIngestQueue ingestQueue,
     ILogger<SyncSchedulerJob> logger)
 {
+    /// <summary>
+    /// Entry point for a connector's recurring schedule: enqueues a single delta sync.
+    /// Each connector has its own Hangfire recurring job (see <see cref="ConnectorSyncScheduler"/>),
+    /// so the cadence is per-connector rather than one global sweep.
+    /// </summary>
     [AutomaticRetry(Attempts = 3, DelaysInSeconds = [300, 300, 300])]
-    public async Task RunAllTenantsAsync()
+    public async Task SyncConnectorAsync(Guid connectorId)
     {
-        logger.LogInformation("SyncSchedulerJob.RunAllTenantsAsync invoked at {Time}", DateTime.UtcNow);
-
-        var allEnabled = await connectorConfigRepository.GetAllEnabledAsync();
-        var folderConnectors = allEnabled
-            .Where(c => c.ConnectorType.Equals("folder", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var config = await connectorConfigRepository.GetByIdAsync(connectorId);
+        if (config is null || !config.IsEnabled)
+        {
+            logger.LogInformation(
+                "Scheduled sync skipped — connector {ConnectorId} not found or disabled.", connectorId);
+            return;
+        }
 
         logger.LogInformation(
-            "Enqueueing {Count} folder connector(s) for scheduled sync.", folderConnectors.Count);
+            "Enqueueing scheduled delta sync for connector {ConnectorId} ({Type}).",
+            connectorId, config.ConnectorType);
 
-        foreach (var connector in folderConnectors)
-        {
-            await ingestQueue.EnqueueAsync(
-                new IngestJobMessage(connector.TenantId, connector.Id, connector.ConnectorType, null, "scheduler"));
-        }
+        await ingestQueue.EnqueueAsync(
+            new IngestJobMessage(config.TenantId, config.Id, config.ConnectorType, null, "scheduler"));
     }
 
     [AutomaticRetry(Attempts = 3, DelaysInSeconds = [300, 300, 300])]

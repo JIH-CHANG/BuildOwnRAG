@@ -1,5 +1,6 @@
 using Hangfire;
 using Hangfire.PostgreSql;
+using ManufacturingAI.Core.Models;
 using ManufacturingAI.Core.Parser;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,6 +37,7 @@ public static class DependencyInjection
         services.AddCoreParsers();
         services.AddScoped<IIngestService, IngestService>();
         services.AddScoped<SyncSchedulerJob>();
+        services.AddScoped<ConnectorSyncScheduler>();
         services.AddScoped<ReingestJob>();
         services.AddHostedService<FolderWatcherService>();
         services.AddHostedService<RedisStreamConsumerGroupInitializer>();
@@ -43,15 +45,18 @@ public static class DependencyInjection
         return services;
     }
 
-    public static void RegisterRecurringJobs(IRecurringJobManager manager)
+    /// <summary>
+    /// Registers a per-connector recurring sync job for each enabled connector, using its
+    /// configured <see cref="ConnectorConfig.SyncIntervalMinutes"/>. Also removes the legacy
+    /// global "sync-all-connectors" job that this per-connector scheme supersedes.
+    /// </summary>
+    public static void RegisterRecurringJobs(
+        IRecurringJobManager manager, IEnumerable<ConnectorConfig> enabledConnectors)
     {
-        manager.AddOrUpdate<SyncSchedulerJob>(
-            recurringJobId: "sync-all-connectors",
-            methodCall: job => job.RunAllTenantsAsync(),
-            cronExpression: Cron.Hourly(),
-            options: new RecurringJobOptions
-            {
-                TimeZone = TimeZoneInfo.Utc
-            });
+        manager.RemoveIfExists("sync-all-connectors");
+
+        var scheduler = new ConnectorSyncScheduler(manager);
+        foreach (var connector in enabledConnectors)
+            scheduler.Schedule(connector.Id, connector.SyncIntervalMinutes);
     }
 }

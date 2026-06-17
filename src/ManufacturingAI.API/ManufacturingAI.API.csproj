@@ -35,6 +35,7 @@
     <ProjectReference Include="..\ManufacturingAI.Services.TestGen\ManufacturingAI.Services.TestGen.csproj" />
     <ProjectReference Include="..\ManufacturingAI.Services.Analytics\ManufacturingAI.Services.Analytics.csproj" />
     <ProjectReference Include="..\ManufacturingAI.Connectors.Folder\ManufacturingAI.Connectors.Folder.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Connectors.GoogleDrive\ManufacturingAI.Connectors.GoogleDrive.csproj" />
   </ItemGroup>
 
 </Project>
