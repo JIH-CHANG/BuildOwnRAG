@@ -50,6 +50,7 @@ This section is intentionally explicit so the repository does not overstate what
 - [x] Multi-provider LLM/embedding routing (OpenAI, Azure OpenAI, Gemini, Ollama, Groq, Claude)
 - [x] Document upload and ingestion for PDF, Word, Excel, CSV, plain text, and Markdown
 - [x] Folder connector with incremental (content-hash) sync and optional file-watching
+- [x] Google Drive connector (service account) with incremental sync via the Drive changes API and per-connector scheduling
 - [x] JWT auth, per-tenant isolation, query logging, and Redis caching
 - [x] First-run setup wizard and Docker Compose deployment
 - [x] Cosine reranker (default); Cohere reranker optional (needs API key, falls back to cosine)
@@ -57,8 +58,8 @@ This section is intentionally explicit so the repository does not overstate what
 
 ## TODO
 
-- [ ] Connectors other than Folder  
-  SharePoint, Confluence, Google Drive, and Arena are scaffolded only and are not functional yet.
+- [ ] Remaining connectors  
+  SharePoint, Confluence, and Arena are scaffolded only and are not functional yet.
 - [ ] Production observability  
   Production-grade observability is not in place yet. Prometheus, Grafana, and Loki still need to be integrated; currently only the Aspire dashboard is available for development-time diagnostics.
 - [ ] Broader test coverage  
