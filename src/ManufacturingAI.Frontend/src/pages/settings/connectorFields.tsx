@@ -1,7 +1,7 @@
 import { Input, Select } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
-export type ConnectorType = "googledrive" | "folder";
+export type ConnectorType = "googledrive" | "folder" | "sharepoint";
 
 /** Auto-sync cadence presets (minutes). 0 disables the schedule (manual only). */
 export const SYNC_INTERVAL_OPTIONS: { value: number; label: string }[] = [
@@ -52,24 +52,39 @@ export function SyncIntervalSelect({ value, onChange }: SyncIntervalSelectProps)
 export const TYPE_LABELS: Record<ConnectorType, string> = {
   googledrive: "Google Drive (service account)",
   folder: "Local Folder",
+  sharepoint: "SharePoint (Entra app)",
 };
 
 export interface ConnectorFieldsValue {
+  // Google Drive
   serviceAccountJson: string;
   rootFolderId: string;
+  // Local folder
   folderPath: string;
+  watchMode: boolean;
+  // SharePoint
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+  siteUrl: string;
+  driveName: string;
+  // Shared
   includeSubfolders: boolean;
   maxFileSizeMB: number;
-  watchMode: boolean;
 }
 
 export const emptyFields: ConnectorFieldsValue = {
   serviceAccountJson: "",
   rootFolderId: "",
   folderPath: "",
+  watchMode: false,
+  tenantId: "",
+  clientId: "",
+  clientSecret: "",
+  siteUrl: "",
+  driveName: "",
   includeSubfolders: true,
   maxFileSizeMB: 50,
-  watchMode: false,
 };
 
 /** Accepts a bare folder ID or a full Drive URL (".../folders/<id>?...") and returns the ID. */
@@ -80,20 +95,31 @@ export function extractFolderId(input: string): string {
 }
 
 export function buildSettingsJson(type: ConnectorType, v: ConnectorFieldsValue): string {
-  const settings =
-    type === "googledrive"
-      ? {
-          serviceAccountJson: v.serviceAccountJson,
-          rootFolderId: extractFolderId(v.rootFolderId),
-          includeSubfolders: v.includeSubfolders,
-          maxFileSizeMB: v.maxFileSizeMB,
-        }
-      : {
-          folderPath: v.folderPath.trim(),
-          includeSubfolders: v.includeSubfolders,
-          maxFileSizeMB: v.maxFileSizeMB,
-          watchMode: v.watchMode,
-        };
+  let settings: Record<string, unknown>;
+  if (type === "googledrive") {
+    settings = {
+      serviceAccountJson: v.serviceAccountJson,
+      rootFolderId: extractFolderId(v.rootFolderId),
+      includeSubfolders: v.includeSubfolders,
+      maxFileSizeMB: v.maxFileSizeMB,
+    };
+  } else if (type === "sharepoint") {
+    settings = {
+      tenantId: v.tenantId.trim(),
+      clientId: v.clientId.trim(),
+      clientSecret: v.clientSecret,
+      siteUrl: v.siteUrl.trim(),
+      driveName: v.driveName.trim(),
+      maxFileSizeMB: v.maxFileSizeMB,
+    };
+  } else {
+    settings = {
+      folderPath: v.folderPath.trim(),
+      includeSubfolders: v.includeSubfolders,
+      maxFileSizeMB: v.maxFileSizeMB,
+      watchMode: v.watchMode,
+    };
+  }
   return JSON.stringify(settings);
 }
 
@@ -106,6 +132,17 @@ export function validateFields(type: ConnectorType, v: ConnectorFieldsValue): st
       return "Service account JSON is not valid JSON.";
     }
     if (!v.rootFolderId.trim()) return "Folder ID is required.";
+  } else if (type === "sharepoint") {
+    if (!v.tenantId.trim()) return "Tenant ID is required.";
+    if (!v.clientId.trim()) return "Client ID is required.";
+    if (!v.clientSecret.trim()) return "Client secret is required.";
+    if (!v.siteUrl.trim()) return "Site URL is required.";
+    try {
+      const u = new URL(v.siteUrl);
+      if (!u.hostname) return "Site URL is not a valid URL.";
+    } catch {
+      return "Site URL is not a valid URL.";
+    }
   } else if (!v.folderPath.trim()) {
     return "Folder path is required.";
   }
@@ -127,7 +164,7 @@ export function ConnectorTypeFields({ type, value, onChange }: ConnectorTypeFiel
 
   return (
     <>
-      {type === "googledrive" ? (
+      {type === "googledrive" && (
         <>
           <div className="flex flex-col gap-1">
             <label htmlFor="sa-json" className="text-sm text-slate-400">
@@ -154,7 +191,56 @@ export function ConnectorTypeFields({ type, value, onChange }: ConnectorTypeFiel
             onChange={(e) => onChange({ rootFolderId: e.target.value })}
           />
         </>
-      ) : (
+      )}
+
+      {type === "sharepoint" && (
+        <>
+          <Input
+            label="Tenant ID"
+            id="sp-tenant"
+            placeholder="00000000-0000-0000-0000-000000000000 or contoso.onmicrosoft.com"
+            value={value.tenantId}
+            onChange={(e) => onChange({ tenantId: e.target.value })}
+          />
+          <Input
+            label="Client (Application) ID"
+            id="sp-client"
+            placeholder="00000000-0000-0000-0000-000000000000"
+            value={value.clientId}
+            onChange={(e) => onChange({ clientId: e.target.value })}
+          />
+          <Input
+            label="Client secret"
+            id="sp-secret"
+            type="password"
+            placeholder="••••••••"
+            value={value.clientSecret}
+            onChange={(e) => onChange({ clientSecret: e.target.value })}
+          />
+          <Input
+            label="Site URL"
+            id="sp-site"
+            placeholder="https://contoso.sharepoint.com/sites/marketing"
+            value={value.siteUrl}
+            onChange={(e) => onChange({ siteUrl: e.target.value })}
+          />
+          <div className="flex flex-col gap-1">
+            <Input
+              label="Document library name (optional)"
+              id="sp-drive"
+              placeholder="Documents"
+              value={value.driveName}
+              onChange={(e) => onChange({ driveName: e.target.value })}
+            />
+            <p className="text-xs text-slate-500">
+              Leave empty to use the site's default document library.
+              The Entra app needs Sites.Read.All and Files.Read.All (Application) with admin consent.
+            </p>
+          </div>
+        </>
+      )}
+
+      {type === "folder" && (
         <Input
           label="Folder path"
           id="folder-path"
@@ -174,15 +260,17 @@ export function ConnectorTypeFields({ type, value, onChange }: ConnectorTypeFiel
           onChange={(e) => onChange({ maxFileSizeMB: Number(e.target.value) })}
           className="w-32"
         />
-        <label className="mt-5 flex items-center gap-2 text-sm text-slate-300">
-          <input
-            type="checkbox"
-            checked={value.includeSubfolders}
-            onChange={(e) => onChange({ includeSubfolders: e.target.checked })}
-            className="accent-accent"
-          />
-          Include subfolders
-        </label>
+        {type !== "sharepoint" && (
+          <label className="mt-5 flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={value.includeSubfolders}
+              onChange={(e) => onChange({ includeSubfolders: e.target.checked })}
+              className="accent-accent"
+            />
+            Include subfolders
+          </label>
+        )}
       </div>
 
       {type === "folder" && (
