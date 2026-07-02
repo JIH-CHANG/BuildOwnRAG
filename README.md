@@ -34,7 +34,7 @@ Evaluation conditions:
   - Hybrid (default): Qdrant vector search + Lucene BM25 + Reciprocal Rank Fusion.
   - Lite: BM25-only over PostgreSQL, no embedding model and no Qdrant required.
 - Pluggable LLM and embedding providers, switchable at runtime from the UI.
-- File ingestion for PDF, Word, Excel, CSV, plain text, and Markdown.
+- File ingestion for PDF, Word, Excel, CSV, plain text, Markdown, and HTML.
 - Background ingestion via Hangfire and a Redis Stream queue; incremental sync by content hash.
 - Per-tenant isolation of documents, users, query logs, and vector collections.
 
@@ -48,9 +48,11 @@ This section is intentionally explicit so the repository does not overstate what
 
 - [x] Hybrid and Lite retrieval pipelines
 - [x] Multi-provider LLM/embedding routing (OpenAI, Azure OpenAI, Gemini, Ollama, Groq, Claude)
-- [x] Document upload and ingestion for PDF, Word, Excel, CSV, plain text, and Markdown
+- [x] Document upload and ingestion for PDF, Word, Excel, CSV, plain text, Markdown, and HTML
 - [x] Folder connector with incremental (content-hash) sync and optional file-watching
 - [x] Google Drive connector (service account) with incremental sync via the Drive changes API and per-connector scheduling
+- [x] SharePoint connector (Entra app) with incremental sync via the Microsoft Graph delta API
+- [x] Confluence connector (Cloud API token or Server/Data Center PAT) with incremental sync via CQL `lastmodified` queries; scope by spaces and/or page trees (a page plus all its descendants); pages are ingested as HTML and attachments (PDF/Word/Excel/…) optionally included
 - [x] JWT auth, per-tenant isolation, query logging, and Redis caching
 - [x] First-run setup wizard and Docker Compose deployment
 - [x] Cosine reranker (default); Cohere reranker optional (needs API key, falls back to cosine)
@@ -59,7 +61,7 @@ This section is intentionally explicit so the repository does not overstate what
 ## TODO
 
 - [ ] Remaining connectors  
-  SharePoint, Confluence, and Arena are scaffolded only and are not functional yet.
+  Arena is scaffolded only and is not functional yet.
 - [ ] Production observability  
   Production-grade observability is not in place yet. Prometheus, Grafana, and Loki still need to be integrated; currently only the Aspire dashboard is available for development-time diagnostics.
 - [ ] Broader test coverage  
@@ -91,7 +93,7 @@ ManufacturingAI/
   src/
     ManufacturingAI.Core/             Domain models, interfaces, configuration
     ManufacturingAI.Core.RAG/         Chunking, retrieval (Hybrid + Lite), reranking
-    ManufacturingAI.Core.Parser/      File parsers: PDF / Word / Excel / CSV / TXT / Markdown (heading-aware)
+    ManufacturingAI.Core.Parser/      File parsers: PDF / Word / Excel / CSV / TXT / Markdown / HTML (heading-aware)
     ManufacturingAI.Core.Connectors/  Connector abstractions
     ManufacturingAI.Infrastructure/   EF Core + PostgreSQL, Qdrant, Redis, LLM/Embedding providers
     ManufacturingAI.API/              ASP.NET Core Web API (port 8080)
@@ -202,7 +204,7 @@ Core indexing flow (`IngestDocumentAsync`):
 2.  Compare against SyncState. Same hash + Completed -> skip (incremental sync dedup).
 3.  Mark SyncState = Running.
 4.  ParserFactory.ParseAsync(mimeType): pick a parser by MIME
-    (PDF / Word / Excel / CSV / TXT / Markdown) and produce a ParsedDocument.
+    (PDF / Word / Excel / CSV / TXT / Markdown / HTML) and produce a ParsedDocument.
     Markdown is parsed heading-aware: each ATX heading starts a section with a
     breadcrumb title (Parent > Child); fenced code blocks are preserved verbatim.
 5.  SemanticChunker.Chunk(): section-first split, Tiktoken token counting,

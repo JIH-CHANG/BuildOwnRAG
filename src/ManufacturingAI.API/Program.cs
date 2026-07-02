@@ -4,6 +4,7 @@ using ManufacturingAI.API;
 using ManufacturingAI.API.Auth;
 using ManufacturingAI.API.Middleware;
 using ManufacturingAI.API.Workers;
+using ManufacturingAI.Connectors.Confluence;
 using ManufacturingAI.Connectors.Folder;
 using ManufacturingAI.Connectors.GoogleDrive;
 using ManufacturingAI.Connectors.SharePoint;
@@ -71,6 +72,7 @@ try
     builder.Services.AddFolderConnector();
     builder.Services.AddGoogleDriveConnector();
     builder.Services.AddSharePointConnector();
+    builder.Services.AddConfluenceConnector();
 
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>

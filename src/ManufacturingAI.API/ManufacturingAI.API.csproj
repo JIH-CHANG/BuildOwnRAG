@@ -37,6 +37,7 @@
     <ProjectReference Include="..\ManufacturingAI.Connectors.Folder\ManufacturingAI.Connectors.Folder.csproj" />
     <ProjectReference Include="..\ManufacturingAI.Connectors.GoogleDrive\ManufacturingAI.Connectors.GoogleDrive.csproj" />
     <ProjectReference Include="..\ManufacturingAI.Connectors.SharePoint\ManufacturingAI.Connectors.SharePoint.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Connectors.Confluence\ManufacturingAI.Connectors.Confluence.csproj" />
   </ItemGroup>
 
 </Project>

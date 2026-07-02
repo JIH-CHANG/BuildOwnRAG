@@ -27,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ManufacturingAI.Core\ManufacturingAI.Core.csproj" />
     <ProjectReference Include="..\..\src\ManufacturingAI.Core.RAG\ManufacturingAI.Core.RAG.csproj" />
+    <ProjectReference Include="..\..\src\ManufacturingAI.Core.Parser\ManufacturingAI.Core.Parser.csproj" />
     <ProjectReference Include="..\..\src\ManufacturingAI.Infrastructure\ManufacturingAI.Infrastructure.csproj" />
   </ItemGroup>
 

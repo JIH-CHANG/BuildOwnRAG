@@ -1,7 +1,7 @@
 import { Input, Select } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
-export type ConnectorType = "googledrive" | "folder" | "sharepoint";
+export type ConnectorType = "googledrive" | "folder" | "sharepoint" | "confluence";
 
 /** Auto-sync cadence presets (minutes). 0 disables the schedule (manual only). */
 export const SYNC_INTERVAL_OPTIONS: { value: number; label: string }[] = [
@@ -53,6 +53,7 @@ export const TYPE_LABELS: Record<ConnectorType, string> = {
   googledrive: "Google Drive (service account)",
   folder: "Local Folder",
   sharepoint: "SharePoint (Entra app)",
+  confluence: "Confluence (API token)",
 };
 
 export interface ConnectorFieldsValue {
@@ -68,6 +69,13 @@ export interface ConnectorFieldsValue {
   clientSecret: string;
   siteUrl: string;
   driveName: string;
+  // Confluence
+  confluenceBaseUrl: string;
+  confluenceEmail: string;
+  confluenceApiToken: string;
+  confluenceSpaceKeys: string;
+  confluencePageIds: string;
+  includeAttachments: boolean;
   // Shared
   includeSubfolders: boolean;
   maxFileSizeMB: number;
@@ -83,6 +91,12 @@ export const emptyFields: ConnectorFieldsValue = {
   clientSecret: "",
   siteUrl: "",
   driveName: "",
+  confluenceBaseUrl: "",
+  confluenceEmail: "",
+  confluenceApiToken: "",
+  confluenceSpaceKeys: "",
+  confluencePageIds: "",
+  includeAttachments: true,
   includeSubfolders: true,
   maxFileSizeMB: 50,
 };
@@ -92,6 +106,25 @@ export function extractFolderId(input: string): string {
   const s = input.trim();
   const m = s.match(/\/folders\/([^/?#]+)/);
   return m ? m[1] : s;
+}
+
+/**
+ * Accepts a bare Confluence page ID or a full page URL and returns the ID.
+ * Cloud: ".../wiki/spaces/ENG/pages/123456/Title"; Server: "...?pageId=123456".
+ */
+export function extractPageId(input: string): string {
+  const s = input.trim();
+  const m = s.match(/\/pages\/(\d+)/) ?? s.match(/[?&]pageId=(\d+)/);
+  return m ? m[1] : s;
+}
+
+/** Normalizes a comma-separated list of page IDs/URLs to a comma-separated ID list. */
+export function extractPageIds(input: string): string {
+  return input
+    .split(",")
+    .map(extractPageId)
+    .filter((s) => s.length > 0)
+    .join(",");
 }
 
 export function buildSettingsJson(type: ConnectorType, v: ConnectorFieldsValue): string {
@@ -110,6 +143,16 @@ export function buildSettingsJson(type: ConnectorType, v: ConnectorFieldsValue):
       clientSecret: v.clientSecret,
       siteUrl: v.siteUrl.trim(),
       driveName: v.driveName.trim(),
+      maxFileSizeMB: v.maxFileSizeMB,
+    };
+  } else if (type === "confluence") {
+    settings = {
+      baseUrl: v.confluenceBaseUrl.trim(),
+      email: v.confluenceEmail.trim(),
+      apiToken: v.confluenceApiToken,
+      spaceKeys: v.confluenceSpaceKeys.trim(),
+      pageIds: extractPageIds(v.confluencePageIds),
+      includeAttachments: v.includeAttachments,
       maxFileSizeMB: v.maxFileSizeMB,
     };
   } else {
@@ -143,6 +186,21 @@ export function validateFields(type: ConnectorType, v: ConnectorFieldsValue): st
     } catch {
       return "Site URL is not a valid URL.";
     }
+  } else if (type === "confluence") {
+    if (!v.confluenceBaseUrl.trim()) return "Base URL is required.";
+    try {
+      const u = new URL(v.confluenceBaseUrl);
+      if (!u.hostname) return "Base URL is not a valid URL.";
+    } catch {
+      return "Base URL is not a valid URL.";
+    }
+    if (!v.confluenceApiToken.trim()) return "API token is required.";
+    const badId = v.confluencePageIds
+      .split(",")
+      .map(extractPageId)
+      .find((id) => id.length > 0 && !/^\d+$/.test(id));
+    if (badId !== undefined)
+      return `"${badId}" is not a valid page ID — use the numeric ID or paste the page URL.`;
   } else if (!v.folderPath.trim()) {
     return "Folder path is required.";
   }
@@ -240,6 +298,69 @@ export function ConnectorTypeFields({ type, value, onChange }: ConnectorTypeFiel
         </>
       )}
 
+      {type === "confluence" && (
+        <>
+          <Input
+            label="Base URL"
+            id="cf-base-url"
+            placeholder="https://yourcompany.atlassian.net or https://confluence.yourcompany.com"
+            value={value.confluenceBaseUrl}
+            onChange={(e) => onChange({ confluenceBaseUrl: e.target.value })}
+          />
+          <Input
+            label="Account email (Cloud only)"
+            id="cf-email"
+            placeholder="you@company.com"
+            value={value.confluenceEmail}
+            onChange={(e) => onChange({ confluenceEmail: e.target.value })}
+          />
+          <div className="flex flex-col gap-1">
+            <Input
+              label="API token"
+              id="cf-token"
+              type="password"
+              placeholder="••••••••"
+              value={value.confluenceApiToken}
+              onChange={(e) => onChange({ confluenceApiToken: e.target.value })}
+            />
+            <p className="text-xs text-slate-500">
+              Cloud: create an API token at id.atlassian.com and fill in the account
+              email above. Server/Data Center: use a personal access token and leave
+              the email empty.
+            </p>
+          </div>
+          <Input
+            label="Space keys (optional)"
+            id="cf-spaces"
+            placeholder="ENG, QA — empty syncs all accessible spaces"
+            value={value.confluenceSpaceKeys}
+            onChange={(e) => onChange({ confluenceSpaceKeys: e.target.value })}
+          />
+          <div className="flex flex-col gap-1">
+            <Input
+              label="Page IDs or URLs (optional)"
+              id="cf-pages"
+              placeholder="123456, https://…/wiki/spaces/ENG/pages/789012/Title"
+              value={value.confluencePageIds}
+              onChange={(e) => onChange({ confluencePageIds: e.target.value })}
+            />
+            <p className="text-xs text-slate-500">
+              Each listed page is synced together with all of its child pages. Leave
+              empty to sync whole spaces. Combines with space keys when both are set.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={value.includeAttachments}
+              onChange={(e) => onChange({ includeAttachments: e.target.checked })}
+              className="accent-accent"
+            />
+            Include page attachments (PDF, Word, Excel, …)
+          </label>
+        </>
+      )}
+
       {type === "folder" && (
         <Input
           label="Folder path"
@@ -260,7 +381,7 @@ export function ConnectorTypeFields({ type, value, onChange }: ConnectorTypeFiel
           onChange={(e) => onChange({ maxFileSizeMB: Number(e.target.value) })}
           className="w-32"
         />
-        {type !== "sharepoint" && (
+        {type !== "sharepoint" && type !== "confluence" && (
           <label className="mt-5 flex items-center gap-2 text-sm text-slate-300">
             <input
               type="checkbox"

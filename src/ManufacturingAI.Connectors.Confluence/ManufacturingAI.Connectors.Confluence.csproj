@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ManufacturingAI.Core\ManufacturingAI.Core.csproj" />
     <ProjectReference Include="..\ManufacturingAI.Core.Connectors\ManufacturingAI.Core.Connectors.csproj" />
+    <ProjectReference Include="..\ManufacturingAI.Infrastructure\ManufacturingAI.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
