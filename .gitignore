@@ -393,3 +393,6 @@ Thumbs.db
 .idea/
 *.orig
 /CLAUDE.md
+
+# Local-only test projects (kept out of the repo)
+tests/

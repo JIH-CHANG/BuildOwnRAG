@@ -19,8 +19,4 @@
     <Project Path="src/ManufacturingAI.Connectors.SharePoint/ManufacturingAI.Connectors.SharePoint.csproj" />
     <Project Path="src/ManufacturingAI.Core.Connectors/ManufacturingAI.Core.Connectors.csproj" />
   </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/ManufacturingAI.Integration.Tests/ManufacturingAI.Integration.Tests.csproj" />
-    <Project Path="tests/ManufacturingAI.Unit.Tests/ManufacturingAI.Unit.Tests.csproj" />
-  </Folder>
 </Solution>
