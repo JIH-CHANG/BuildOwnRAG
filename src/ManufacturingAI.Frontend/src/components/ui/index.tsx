@@ -176,14 +176,14 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-surface-border bg-surface-muted p-6 shadow-2xl"
+        className="flex max-h-full w-full max-w-md flex-col rounded-xl border border-surface-border bg-surface-muted p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex shrink-0 items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
           <button
             onClick={onClose}
@@ -193,7 +193,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
             <X size={18} />
           </button>
         </div>
-        {children}
+        <div className="-mr-2 min-h-0 overflow-y-auto pr-2">{children}</div>
       </div>
     </div>
   );
