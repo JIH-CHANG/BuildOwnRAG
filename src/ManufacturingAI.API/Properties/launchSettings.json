@@ -34,12 +34,12 @@
       "launchUrl": "{Scheme}://{ServiceHost}:{ServicePort}/swagger",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ConnectionStrings__Postgres": "Host=host.docker.internal;Port=5432;Database=buildownrag;Username=postgres;Password=devpassword123",
+        "ConnectionStrings__Postgres": "Host=host.docker.internal;Port=5432;Database=buildownrag;Username=postgres;Password=CHANGE_ME",
         "ConnectionStrings__Redis": "host.docker.internal:6379",
         "Qdrant__Host": "host.docker.internal",
-        "Jwt__Secret": "dev-jwt-secret-key-at-least-32-chars-long-ok",
-        "Encryption__Key": "YUuM53XZ6kSzCYOSsytrb2SSN4ik19v60tfC5v5n/VM=",
-        "Encryption__IV": "FKaFYTWkiJMVYbpQyCcQIA=="
+        "Jwt__Secret": "CHANGE_ME_AT_LEAST_32_CHARS_RANDOM_SECRET",
+        "Encryption__Key": "CHANGE_ME_BASE64_32_BYTE_KEY",
+        "Encryption__IV": "CHANGE_ME_BASE64_16_BYTE_IV"
       },
       "httpPort": 5000,
       "useSSL": false
