@@ -124,7 +124,7 @@ public sealed class ConfluenceConnector(
 
     // ── FetchDeltaAsync ──────────────────────────────────────
 
-    public async Task<IEnumerable<SourceDocument>> FetchDeltaAsync(
+    public async Task<ConnectorDelta> FetchDeltaAsync(
         ConnectorConfig config,
         DateTimeOffset? since,
         CancellationToken ct = default)
@@ -158,7 +158,39 @@ public sealed class ConfluenceConnector(
         catch (Exception ex)
         {
             logger.LogError(ex, "Confluence: CQL search failed for connector {ConnectorId}", config.Id);
-            return [];
+            return ConnectorDelta.Empty;
+        }
+
+        // Deletion detection: Confluence search simply stops returning deleted/trashed content, so
+        // the only signal is a full in-scope ID listing reconciled against what we have indexed.
+        // On a first sync (no cursor) the query above already listed everything.
+        var deleted = new List<string>();
+        try
+        {
+            var presentIds = new HashSet<string>(StringComparer.Ordinal);
+            if (cursor is null)
+            {
+                presentIds.UnionWith(changed.Where(c => !string.IsNullOrEmpty(c.Id)).Select(c => c.Id!));
+            }
+            else
+            {
+                var all = new List<ConfluenceContent>();
+                await CollectSearchResultsAsync(http, siteBase, apiBase, BuildCql("page", spaceKeys, pageIds, null), all, ct);
+                if (settings.IncludeAttachments)
+                    await CollectSearchResultsAsync(http, siteBase, apiBase, BuildCql("attachment", spaceKeys, pageIds, null), all, ct);
+                presentIds.UnionWith(all.Where(c => !string.IsNullOrEmpty(c.Id)).Select(c => c.Id!));
+            }
+
+            deleted = syncStates
+                .Where(s => !s.SourceId.StartsWith("__", StringComparison.Ordinal)
+                            && !presentIds.Contains(s.SourceId))
+                .Select(s => s.SourceId)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            // A failed listing must not look like "everything vanished" — skip deletions this sync.
+            logger.LogWarning(ex, "Confluence: deletion reconciliation failed for connector {ConnectorId}", config.Id);
         }
 
         await PersistCursorAsync(config, syncStart, ct);
@@ -175,10 +207,10 @@ public sealed class ConfluenceConnector(
             .ToList();
 
         logger.LogInformation(
-            "ConfluenceConnector [{ConnectorId}] delta: {Changed} changed / {Total} reported; cursor advanced.",
-            config.Id, toFetch.Count, changed.Count);
+            "ConfluenceConnector [{ConnectorId}] delta: {Changed} changed, {Deleted} deleted / {Total} reported; cursor advanced.",
+            config.Id, toFetch.Count, deleted.Count, changed.Count);
 
-        return BuildDocuments(http, siteBase, apiBase, toFetch, maxBytes, ct);
+        return new ConnectorDelta(BuildDocuments(http, siteBase, apiBase, toFetch, maxBytes, ct), deleted);
     }
 
     // ── Search (CQL) ─────────────────────────────────────────

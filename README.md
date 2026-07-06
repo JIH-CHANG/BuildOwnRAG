@@ -35,6 +35,7 @@ Evaluation conditions:
   - Lite: BM25-only over PostgreSQL, no embedding model and no Qdrant required.
 - Pluggable LLM and embedding providers, switchable at runtime from the UI.
 - File ingestion for PDF, Word, Excel, CSV, plain text, Markdown, and HTML.
+- Data-source connectors: local Folder (with file-watching), Google Drive, SharePoint, and Confluence — each with incremental sync.
 - Background ingestion via Hangfire and a Redis Stream queue; incremental sync by content hash.
 - Per-tenant isolation of documents, users, query logs, and vector collections.
 
@@ -58,11 +59,10 @@ This section is intentionally explicit so the repository does not overstate what
 - [x] Cosine reranker (default); Cohere reranker optional (needs API key, falls back to cosine)
 - [x] Analytics dashboard (backend + frontend page)
 - [x] Production observability: Prometheus + Loki + Grafana behind `--profile observability`, fed by an OTel Collector; RAG business metrics (query/ingest/provider), provisioned dashboards and alert rules. Aspire dashboard remains the default dev-time target. See [Observability](#observability).
+- [x] Source-deletion propagation: files deleted/trashed at the source are removed from PostgreSQL and Qdrant on the next sync (Google Drive and SharePoint via their change feeds; Folder and Confluence by reconciling a full listing against sync state)
 
 ## TODO
 
-- [ ] Remaining connectors  
-  Arena is scaffolded only and is not functional yet.
 - [ ] Broader test coverage  
   Additional automated test coverage is still needed, including frontend integration tests, end-to-end scenarios, regression coverage, and larger-scale validation.
 
@@ -102,7 +102,7 @@ ManufacturingAI/
     ManufacturingAI.Services.Query/    QueryRouter, QueryService, LiteQueryService
     ManufacturingAI.Services.Analytics/ Tenant analytics
     ManufacturingAI.Services.TestGen/   Test-script generation
-    ManufacturingAI.Connectors.*/     Folder, SharePoint, Confluence, GoogleDrive, Arena
+    ManufacturingAI.Connectors.*/     Folder, SharePoint, Confluence, GoogleDrive
   docker/                             Dockerfiles (api, setup, frontend, nginx)
   docker-compose.yml                  Local/dev stack (builds from source)
   ManufacturingAI.slnx                Solution file

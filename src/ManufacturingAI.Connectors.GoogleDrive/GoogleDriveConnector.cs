@@ -129,7 +129,7 @@ public sealed class GoogleDriveConnector(
 
     // ── FetchDeltaAsync ──────────────────────────────────────
 
-    public async Task<IEnumerable<SourceDocument>> FetchDeltaAsync(
+    public async Task<ConnectorDelta> FetchDeltaAsync(
         ConnectorConfig config,
         DateTimeOffset? since,
         CancellationToken ct = default)
@@ -154,7 +154,7 @@ public sealed class GoogleDriveConnector(
     // First sync: record where "now" is in Drive's change stream, then index everything currently
     // in the folder. The start token is captured and persisted *before* the crawl so edits made
     // during the (potentially long) seed are still caught by the next incremental run.
-    private async Task<IEnumerable<SourceDocument>> SeedAsync(
+    private async Task<ConnectorDelta> SeedAsync(
         DriveService service, GoogleDriveConnectorSettings settings, ConnectorConfig config,
         IReadOnlyList<SyncState> syncStates, long maxBytes, CancellationToken ct)
     {
@@ -168,7 +168,7 @@ public sealed class GoogleDriveConnector(
         catch (Exception ex)
         {
             logger.LogError(ex, "GoogleDrive: could not obtain start page token for connector {ConnectorId}", config.Id);
-            return [];
+            return ConnectorDelta.Empty;
         }
 
         List<DriveFile> files;
@@ -179,7 +179,7 @@ public sealed class GoogleDriveConnector(
         catch (Exception ex)
         {
             logger.LogError(ex, "GoogleDrive enumeration failed for folder {RootFolderId}", settings.RootFolderId);
-            return [];
+            return ConnectorDelta.Empty;
         }
 
         // Skip files already indexed at the same hash. Irrelevant on a genuine first run (no rows),
@@ -194,23 +194,34 @@ public sealed class GoogleDriveConnector(
             .Where(f => !(knownHashes.TryGetValue(f.Id, out var stored) && stored == ComputeVersionHash(f)))
             .ToList();
 
+        // Files we indexed under an older cursor that no longer show up in the crawl were deleted
+        // (or moved out of scope) while no valid change cursor was tracking them.
+        var presentIds = files.Select(f => f.Id).ToHashSet(StringComparer.Ordinal);
+        var deleted = syncStates
+            .Where(s => !s.SourceId.StartsWith("__", StringComparison.Ordinal)
+                        && !presentIds.Contains(s.SourceId))
+            .Select(s => s.SourceId)
+            .ToList();
+
         logger.LogInformation(
-            "GoogleDriveConnector [{ConnectorId}] seed: {Changed} new / {Total} file(s); start token stored.",
-            config.Id, changed.Count, files.Count);
+            "GoogleDriveConnector [{ConnectorId}] seed: {Changed} new, {Deleted} deleted / {Total} file(s); start token stored.",
+            config.Id, changed.Count, deleted.Count, files.Count);
 
         // Lazily materialize each document: content is downloaded only as the consumer pulls it
         // (SyncSchedulerJob disposes each stream before moving on), so memory stays at ~one file.
-        return BuildDocuments(service, changed, maxBytes, ct);
+        return new ConnectorDelta(BuildDocuments(service, changed, maxBytes, ct), deleted);
     }
 
-    // Incremental sync: pull Drive's change feed from the stored cursor and map only the
-    // added/modified files in scope. Deletions/trashing are out of scope for now (the connector
-    // interface has no delete signal yet — see the deletion follow-up in tasks/todo.md).
-    private async Task<IEnumerable<SourceDocument>> FetchChangesAsync(
+    // Incremental sync: pull Drive's change feed from the stored cursor and map the added/modified
+    // files in scope plus the IDs of removed/trashed files. Removed changes carry no file (and
+    // trashed ones may lack parents), so deletions skip the scope check — the ingest side ignores
+    // SourceIds it never indexed.
+    private async Task<ConnectorDelta> FetchChangesAsync(
         DriveService service, GoogleDriveConnectorSettings settings, ConnectorConfig config,
         string pageToken, long maxBytes, CancellationToken ct)
     {
         var changedFiles = new List<DriveFile>();
+        var deletedIds = new HashSet<string>(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var scopeCache = new Dictionary<string, bool>(StringComparer.Ordinal);
         string? newStartToken;
@@ -223,7 +234,7 @@ public sealed class GoogleDriveConnector(
                 ct.ThrowIfCancellationRequested();
                 var req = service.Changes.List(token);
                 req.Fields =
-                    $"nextPageToken, newStartPageToken, changes(removed, file({FileFields}, trashed, parents))";
+                    $"nextPageToken, newStartPageToken, changes(fileId, removed, file({FileFields}, trashed, parents))";
                 req.PageSize = 1000;
                 req.SupportsAllDrives = true;
                 req.IncludeItemsFromAllDrives = true;
@@ -234,7 +245,14 @@ public sealed class GoogleDriveConnector(
                 foreach (var change in resp.Changes ?? Enumerable.Empty<Change>())
                 {
                     var file = change.File;
-                    if (change.Removed == true || file is null || file.Trashed == true || file.MimeType == FolderMime)
+                    if (change.Removed == true || file?.Trashed == true)
+                    {
+                        var id = change.FileId ?? file?.Id;
+                        if (!string.IsNullOrEmpty(id))
+                            deletedIds.Add(id);
+                        continue;
+                    }
+                    if (file is null || file.MimeType == FolderMime)
                         continue;
                     if (!seen.Add(file.Id))               // a file can appear in several change records
                         continue;
@@ -258,8 +276,12 @@ public sealed class GoogleDriveConnector(
         catch (Exception ex)
         {
             logger.LogError(ex, "GoogleDrive changes.list failed for connector {ConnectorId}", config.Id);
-            return [];
+            return ConnectorDelta.Empty;
         }
+
+        // A file trashed then restored inside the same window surfaces in both sets — the live
+        // record wins.
+        deletedIds.ExceptWith(changedFiles.Select(f => f.Id));
 
         // Advance the cursor once the whole change set is collected. Downloads still happen lazily
         // below; a per-file download failure is skipped (as in the seed crawl), so we deliberately
@@ -268,10 +290,10 @@ public sealed class GoogleDriveConnector(
             await PersistPageTokenAsync(config, newStartToken, ct);
 
         logger.LogInformation(
-            "GoogleDriveConnector [{ConnectorId}] delta: {Count} changed file(s); cursor advanced.",
-            config.Id, changedFiles.Count);
+            "GoogleDriveConnector [{ConnectorId}] delta: {Count} changed, {Deleted} deleted file(s); cursor advanced.",
+            config.Id, changedFiles.Count, deletedIds.Count);
 
-        return BuildDocuments(service, changedFiles, maxBytes, ct);
+        return new ConnectorDelta(BuildDocuments(service, changedFiles, maxBytes, ct), deletedIds);
     }
 
     // ── Crawl ────────────────────────────────────────────────

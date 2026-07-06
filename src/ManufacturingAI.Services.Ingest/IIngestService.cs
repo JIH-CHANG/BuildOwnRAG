@@ -28,6 +28,13 @@ public interface IIngestService
     Task<Result> IngestDocumentAsync(Guid tenantId, SourceDocument source, ConnectorConfig config, CancellationToken ct = default);
 
     /// <summary>
+    /// Removes everything tied to a source document that was deleted at its origin:
+    /// Qdrant vectors, PostgreSQL chunks, the Document row, and the SyncState bookkeeping.
+    /// A no-op (still Ok) when the SourceId was never indexed.
+    /// </summary>
+    Task<Result> DeleteSourceDocumentAsync(Guid tenantId, ConnectorConfig config, string sourceId, CancellationToken ct = default);
+
+    /// <summary>
     /// Creates a Pending document record immediately (so the UI shows it),
     /// then enqueues a background job to parse, embed, and index the file.
     /// </summary>

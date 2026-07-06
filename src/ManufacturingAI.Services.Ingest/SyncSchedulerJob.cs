@@ -58,10 +58,10 @@ public class SyncSchedulerJob(
         logger.LogInformation(
             "Starting delta fetch for connector {ConnectorId} ({Type})", connectorId, config.ConnectorType);
 
-        IEnumerable<SourceDocument> deltaDocs;
+        ConnectorDelta delta;
         try
         {
-            deltaDocs = await connector.FetchDeltaAsync(config, since);
+            delta = await connector.FetchDeltaAsync(config, since);
         }
         catch (Exception ex)
         {
@@ -73,7 +73,7 @@ public class SyncSchedulerJob(
         // be serialized into a child Hangfire job.  Documents are processed sequentially;
         // the enclosing job itself provides retry resilience at the connector level.
         int succeeded = 0, failed = 0;
-        foreach (var doc in deltaDocs)
+        foreach (var doc in delta.Documents)
         {
             try
             {
@@ -98,8 +98,27 @@ public class SyncSchedulerJob(
             }
         }
 
+        // Propagate source-side deletions after the ingest pass so a rename (delete + create of
+        // the same content) never leaves a window where the document is missing entirely.
+        int deleted = 0;
+        foreach (var sourceId in delta.DeletedSourceIds)
+        {
+            try
+            {
+                var result = await ingestService.DeleteSourceDocumentAsync(config.TenantId, config, sourceId);
+                if (result.Success) deleted++;
+                else
+                    logger.LogWarning(
+                        "Deletion failed for {SourceId}: {Error}", sourceId, result.Error);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Unhandled error deleting {SourceId}", sourceId);
+            }
+        }
+
         logger.LogInformation(
-            "Connector {ConnectorId}: {OK} ingested, {Fail} failed",
-            connectorId, succeeded, failed);
+            "Connector {ConnectorId}: {OK} ingested, {Fail} failed, {Deleted} deleted",
+            connectorId, succeeded, failed, deleted);
     }
 }

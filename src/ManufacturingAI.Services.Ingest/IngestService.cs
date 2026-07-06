@@ -275,6 +275,37 @@ public class IngestService(
         }
     }
 
+    public async Task<Result> DeleteSourceDocumentAsync(
+        Guid tenantId, ConnectorConfig config, string sourceId, CancellationToken ct = default)
+    {
+        try
+        {
+            var doc = await documentRepository.GetBySourceIdAsync(tenantId, config.ConnectorType, sourceId, ct);
+            if (doc is not null)
+            {
+                // Same cleanup order as the manual delete in DocumentsController: vectors first
+                // (a missing collection is a logged no-op in the store), then chunks, then the row.
+                var collectionName = await tenantVectorService.GetActiveCollectionNameAsync(tenantId, ct);
+                await vectorStore.DeleteByDocumentIdAsync(collectionName, doc.Id, ct);
+                await chunkRepository.DeleteByDocumentIdAsync(doc.Id, ct);
+                await documentRepository.DeleteAsync(doc.Id, ct);
+                await cache.RemoveByPatternAsync(CacheKeys.DocumentList(tenantId), ct);
+
+                AppMetrics.DocumentsIngested.Add(1,
+                    new("source_type", config.ConnectorType), new("outcome", "deleted"));
+            }
+
+            // Drop the sync bookkeeping even when no Document exists (e.g. a previously failed
+            // ingest) so a recreated source file is treated as fresh.
+            await syncStateRepository.DeleteBySourceAsync(tenantId, sourceId, ct);
+            return Result.Ok();
+        }
+        catch (Exception ex)
+        {
+            return Result.Fail(ex.Message);
+        }
+    }
+
     public async Task<Result> IngestUploadedFileAsync(
         Guid tenantId, string filePath, string fileName, string mimeType, CancellationToken ct = default)
     {

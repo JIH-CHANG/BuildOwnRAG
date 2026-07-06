@@ -31,7 +31,7 @@ public static class AppMetrics
             description: "Confidence score (0-1) of answered queries.");
 
     // ── Ingestion ─────────────────────────────────────────────────
-    // tags: source_type (upload|folder|googledrive|...), outcome = indexed|skipped|failed|deferred
+    // tags: source_type (upload|folder|googledrive|...), outcome = indexed|skipped|failed|deferred|deleted
     public static readonly Counter<long> DocumentsIngested =
         Meter.CreateCounter<long>("rag.ingest.documents", unit: "{document}",
             description: "Documents processed by the ingestion pipeline.");

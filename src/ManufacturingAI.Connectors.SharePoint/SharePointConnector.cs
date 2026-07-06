@@ -117,7 +117,7 @@ public sealed class SharePointConnector(
 
     // ── FetchDeltaAsync ──────────────────────────────────────
 
-    public async Task<IEnumerable<SourceDocument>> FetchDeltaAsync(
+    public async Task<ConnectorDelta> FetchDeltaAsync(
         ConnectorConfig config,
         DateTimeOffset? since,
         CancellationToken ct = default)
@@ -134,7 +134,7 @@ public sealed class SharePointConnector(
         catch (Exception ex)
         {
             logger.LogError(ex, "SharePoint: token acquisition failed for connector {ConnectorId}", config.Id);
-            return [];
+            return ConnectorDelta.Empty;
         }
 
         GraphSite? site;
@@ -142,14 +142,14 @@ public sealed class SharePointConnector(
         try
         {
             site = await ResolveSiteAsync(http, settings.SiteUrl, ct);
-            if (site is null) { logger.LogError("SharePoint: site '{SiteUrl}' not found", settings.SiteUrl); return []; }
+            if (site is null) { logger.LogError("SharePoint: site '{SiteUrl}' not found", settings.SiteUrl); return ConnectorDelta.Empty; }
             drive = await ResolveDriveAsync(http, site.Id, settings.DriveName, ct);
-            if (drive is null) { logger.LogError("SharePoint: drive could not be resolved for site {SiteId}", site.Id); return []; }
+            if (drive is null) { logger.LogError("SharePoint: drive could not be resolved for site {SiteId}", site.Id); return ConnectorDelta.Empty; }
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "SharePoint: site/drive resolution failed for connector {ConnectorId}", config.Id);
-            return [];
+            return ConnectorDelta.Empty;
         }
 
         var syncStates = (await syncStateRepository.GetByConnectorAsync(config.Id, ct)).ToList();
@@ -159,6 +159,7 @@ public sealed class SharePointConnector(
             : tokenRow!.VersionHash;       // saved deltaLink — full URL with token
 
         var changedFiles = new List<GraphDriveItem>();
+        var deletedIds = new HashSet<string>(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         string? newDeltaLink = null;
 
@@ -173,9 +174,16 @@ public sealed class SharePointConnector(
 
                 foreach (var item in page.Value ?? [])
                 {
-                    if (item.Deleted is not null || item.Folder is not null)
+                    if (string.IsNullOrEmpty(item.Id))
                         continue;
-                    if (item.File is null || string.IsNullOrEmpty(item.Id))
+                    if (item.Deleted is not null)
+                    {
+                        // Deleted folders are reported too; harmless — the ingest side ignores
+                        // SourceIds it never indexed.
+                        deletedIds.Add(item.Id);
+                        continue;
+                    }
+                    if (item.Folder is not null || item.File is null)
                         continue;
                     if (!seen.Add(item.Id))
                         continue;
@@ -194,8 +202,12 @@ public sealed class SharePointConnector(
         catch (Exception ex)
         {
             logger.LogError(ex, "SharePoint: delta query failed for connector {ConnectorId}", config.Id);
-            return [];
+            return ConnectorDelta.Empty;
         }
+
+        // An item deleted then restored inside the same window surfaces in both sets — the live
+        // record wins.
+        deletedIds.ExceptWith(seen);
 
         if (!string.IsNullOrEmpty(newDeltaLink))
             await PersistDeltaLinkAsync(config, newDeltaLink, ct);
@@ -211,10 +223,10 @@ public sealed class SharePointConnector(
             .ToList();
 
         logger.LogInformation(
-            "SharePointConnector [{ConnectorId}] delta: {Changed} changed / {Total} reported; cursor advanced.",
-            config.Id, toFetch.Count, changedFiles.Count);
+            "SharePointConnector [{ConnectorId}] delta: {Changed} changed, {Deleted} deleted / {Total} reported; cursor advanced.",
+            config.Id, toFetch.Count, deletedIds.Count, changedFiles.Count);
 
-        return BuildDocuments(http, drive.Id, toFetch, maxBytes, ct);
+        return new ConnectorDelta(BuildDocuments(http, drive.Id, toFetch, maxBytes, ct), deletedIds);
     }
 
     // ── Document materialization (lazy: stream pulled per file as consumer enumerates) ──

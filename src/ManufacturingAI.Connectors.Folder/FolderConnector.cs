@@ -54,7 +54,7 @@ public sealed class FolderConnector(
 
     // ── FetchDeltaAsync ──────────────────────────────────────
 
-    public async Task<IEnumerable<SourceDocument>> FetchDeltaAsync(
+    public async Task<ConnectorDelta> FetchDeltaAsync(
         ConnectorConfig config,
         DateTimeOffset? since,
         CancellationToken ct = default)
@@ -63,7 +63,7 @@ public sealed class FolderConnector(
 
         // Build a hash lookup of already-indexed files (ConnectorId-scoped, not tenant-scoped,
         // because ConnectorConfig is already unique per tenant)
-        var syncStates = await syncStateRepository.GetByConnectorAsync(config.Id, ct);
+        var syncStates = (await syncStateRepository.GetByConnectorAsync(config.Id, ct)).ToList();
         var knownHashes = syncStates
             .Where(s => s.Status == SyncStatus.Completed)
             .ToDictionary(s => s.SourceId, s => s.VersionHash, StringComparer.OrdinalIgnoreCase);
@@ -84,14 +84,20 @@ public sealed class FolderConnector(
         catch (Exception ex)
         {
             logger.LogError(ex, "Cannot enumerate folder {Path}", settings.FolderPath);
-            return [];
+            // Enumeration failure must not look like "every file vanished" — report no deletions.
+            return ConnectorDelta.Empty;
         }
 
         var changed = new List<SourceDocument>();
+        // Every matching file still on disk, whether or not it changed — the complement of this
+        // set against the stored SyncState rows is what was deleted at the source.
+        var presentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var filePath in candidateFiles)
         {
             ct.ThrowIfCancellationRequested();
+            var sourceId = ToSourceId(filePath, settings.FolderPath);
+            presentIds.Add(sourceId);
 
             FileInfo info;
             try { info = new FileInfo(filePath); }
@@ -112,8 +118,6 @@ public sealed class FolderConnector(
             // ② Modification-time pre-filter (fast path, avoids hashing unchanged files)
             if (since.HasValue && info.LastWriteTimeUtc <= since.Value.UtcDateTime)
                 continue;
-
-            var sourceId = ToSourceId(filePath, settings.FolderPath);
 
             // ③ SHA-256 delta: compute hash, skip if unchanged
             string hash;
@@ -146,11 +150,17 @@ public sealed class FolderConnector(
             ));
         }
 
-        logger.LogInformation(
-            "FolderConnector [{ConnectorId}]: {Changed} changed / {Total} matching files",
-            config.Id, changed.Count, knownHashes.Count + changed.Count);
+        var deleted = syncStates
+            .Where(s => !s.SourceId.StartsWith("__", StringComparison.Ordinal)
+                        && !presentIds.Contains(s.SourceId))
+            .Select(s => s.SourceId)
+            .ToList();
 
-        return changed;
+        logger.LogInformation(
+            "FolderConnector [{ConnectorId}]: {Changed} changed, {Deleted} deleted / {Total} matching files",
+            config.Id, changed.Count, deleted.Count, presentIds.Count);
+
+        return new ConnectorDelta(changed, deleted);
     }
 
     // ── Helpers ──────────────────────────────────────────────

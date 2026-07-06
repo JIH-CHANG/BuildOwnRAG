@@ -125,6 +125,7 @@ public sealed class FolderWatcherService(
             watcher.Changed += Trigger;
             watcher.Created += Trigger;
             watcher.Renamed += Trigger;
+            watcher.Deleted += Trigger;   // sync run reconciles and removes the indexed copy
             watcher.Error += (_, e) =>
                 logger.LogError(e.GetException(),
                     "FileSystemWatcher error for connector {Id}", connectorId);
