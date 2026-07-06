@@ -1,0 +1,40 @@
+# OTel Collector: single funnel for the app's OTLP telemetry.
+# Metrics are re-exposed for Prometheus to scrape; logs are forwarded to Loki
+# (Loki 3.x ingests OTLP natively at /otlp). The app itself only ever needs
+# one endpoint: OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  nop:
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki]
+    # The app exports traces over the same OTLP connection; accept and drop
+    # them so the app-side exporter doesn't log failures. To persist traces
+    # later, add a Tempo service and swap nop for an otlp/tempo exporter.
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [nop]

@@ -1,6 +1,7 @@
 using ManufacturingAI.Core;
 using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
+using ManufacturingAI.Core.Observability;
 using ManufacturingAI.Core.RAG.Reranking;
 using ManufacturingAI.Core.RAG.Retrieval;
 using ManufacturingAI.Infrastructure.Caching;
@@ -60,6 +61,7 @@ public class QueryOrchestrator(
             var cached = await cache.GetAsync<QueryResult>(cacheKey, ct);
             if (cached is not null)
             {
+                AppMetrics.Queries.Add(1, new("mode", "hybrid"), new("outcome", "cached"));
                 return cached with { IsFromCache = true, LatencyMs = sw.ElapsedMilliseconds };
             }
         }
@@ -124,6 +126,7 @@ public class QueryOrchestrator(
         // 10. Persist QueryLog
         await SaveQueryLogAsync(request, result, reranked, queryHash, ct);
 
+        RecordQueryMetrics(confidenceScore, isFromFallback, sw.ElapsedMilliseconds);
         return result;
     }
 
@@ -173,7 +176,16 @@ public class QueryOrchestrator(
             LatencyMs: sw.ElapsedMilliseconds);
         var queryId = await SaveQueryLogAsync(request, result, reranked, ComputeHash(request.Question), ct);
 
+        RecordQueryMetrics(confidenceScore, isFromFallback, sw.ElapsedMilliseconds);
         yield return QueryStreamEvent.Completed(sources, queryId, confidenceScore);
+    }
+
+    private static void RecordQueryMetrics(double confidence, bool lowConfidence, long elapsedMs)
+    {
+        AppMetrics.Queries.Add(1,
+            new("mode", "hybrid"), new("outcome", "ok"), new("low_confidence", lowConfidence));
+        AppMetrics.QueryDuration.Record(elapsedMs, new KeyValuePair<string, object?>("mode", "hybrid"));
+        AppMetrics.QueryConfidence.Record(confidence, new KeyValuePair<string, object?>("mode", "hybrid"));
     }
 
     private async Task<Tenant> GetTenantCachedAsync(Guid tenantId, CancellationToken ct)

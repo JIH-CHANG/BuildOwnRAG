@@ -18,7 +18,6 @@ using ManufacturingAI.Services.Query;
 using ManufacturingAI.Services.TestGen;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -27,15 +26,34 @@ using Serilog.Events;
 using System.Text;
 using System.Threading.RateLimiting;
 
-Log.Logger = new LoggerConfiguration()
+// UseSerilog() below replaces the whole ILoggerFactory rather than adding one more
+// provider, so OpenTelemetry's own logging bridge (AddOpenTelemetry().WithLogging(...))
+// never sees a single log record. Serilog has to export OTLP itself.
+var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+
+var loggerConfig = new LoggerConfiguration()
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
     // HttpClient logs the full request URI at Information level — for Gemini that URI contains
     // ?key=<apiKey>. Raise to Warning so provider API keys never land in logs.
     .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
     .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .CreateLogger();
+    .WriteTo.Console();
+
+if (!string.IsNullOrEmpty(otlpEndpoint))
+{
+    loggerConfig = loggerConfig.WriteTo.OpenTelemetry(options =>
+    {
+        options.Endpoint = otlpEndpoint;
+        options.Protocol = Serilog.Sinks.OpenTelemetry.OtlpProtocol.Grpc;
+        options.ResourceAttributes = new Dictionary<string, object>
+        {
+            ["service.name"] = "BuildOwnRAG.API"
+        };
+    });
+}
+
+Log.Logger = loggerConfig.CreateLogger();
 
 try
 {
@@ -46,9 +64,29 @@ try
 
     builder.Services.AddOpenTelemetry()
         .ConfigureResource(r => r.AddService("BuildOwnRAG.API"))
-        .WithTracing(t => t.AddAspNetCoreInstrumentation().AddOtlpExporter())
-        .WithMetrics(m => m.AddAspNetCoreInstrumentation().AddOtlpExporter())
-        .WithLogging(l => l.AddOtlpExporter());
+        .WithTracing(t => t
+            .AddAspNetCoreInstrumentation()
+            // Outgoing HTTP = LLM/embedding provider calls. Gemini carries the API
+            // key in the query string, so record the URL without query at all —
+            // stronger guarantee than the library's default value redaction.
+            .AddHttpClientInstrumentation(o =>
+                o.EnrichWithHttpRequestMessage = (activity, request) =>
+                {
+                    if (request.RequestUri is { } uri)
+                        activity.SetTag("url.full", uri.GetLeftPart(UriPartial.Path));
+                })
+            .AddSource("Npgsql")
+            .AddOtlpExporter())
+        .WithMetrics(m => m
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddMeter("Npgsql")
+            .AddMeter(ManufacturingAI.Core.Observability.AppMetrics.MeterName)
+            .AddOtlpExporter());
+        // Logs are exported by Serilog directly (see the WriteTo.OpenTelemetry sink
+        // above) — Serilog owns the whole ILoggerFactory, so there is no separate
+        // .WithLogging() bridge to configure here.
 
     builder.Services.AddInfrastructure(config);
     builder.Services.AddCoreRAG(config);

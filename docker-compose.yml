@@ -22,7 +22,9 @@ services:
       Jwt__Audience: "${JWT_AUDIENCE:-BuildOwnRAG}"
       Encryption__Key: "${ENCRYPTION_KEY}"
       Encryption__IV: "${ENCRYPTION_IV}"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire-dashboard:18889"
+      # Default: Aspire dashboard (dev diagnostics). With the observability profile,
+      # set OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 in .env.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://aspire-dashboard:18889}"
       OTEL_SERVICE_NAME: "BuildOwnRAG.API"
       AllowedOrigins: "${ALLOWED_ORIGINS:-*}"
       LicenseServer__Url: "${LICENSE_SERVER_URL:-}"
@@ -187,8 +189,82 @@ services:
     networks:
       - backend
 
+  # ── Observability stack (profile: observability) ─────────────
+  # Production monitoring: app -> OTLP -> collector -> Prometheus (metrics) + Loki (logs),
+  # visualized in Grafana. Enable with:
+  #   docker compose --profile observability up -d
+  # and set OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 in .env.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: buildownrag-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./docker/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    profiles:
+      - observability
+    restart: unless-stopped
+    networks:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: buildownrag-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    profiles:
+      - observability
+    restart: unless-stopped
+    networks:
+      - backend
+
+  loki:
+    image: grafana/loki:latest
+    container_name: buildownrag-loki
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./docker/observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    profiles:
+      - observability
+    restart: unless-stopped
+    networks:
+      - backend
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: buildownrag-grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+    profiles:
+      - observability
+    restart: unless-stopped
+    networks:
+      - backend
+
 networks:
   backend:
     driver: bridge
 
-volumes: {}
+# Named volumes (not DATA_DIR bind mounts) because these images run as non-root
+# users; a fresh root-owned bind mount would fail their startup chown/write.
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:

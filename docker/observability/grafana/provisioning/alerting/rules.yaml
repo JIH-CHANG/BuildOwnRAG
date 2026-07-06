@@ -1,0 +1,91 @@
+# File-provisioned alert rules. They fire to Grafana's default contact point —
+# configure SMTP / webhook under Alerting > Contact points to actually get
+# notified; until then alerts are visible in the Grafana UI only.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: buildownrag
+    folder: BuildOwnRAG
+    interval: 1m
+    rules:
+      - uid: api-5xx-rate
+        title: High API 5xx error rate
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: API is returning more than 0.1 5xx responses per second over 5 minutes.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m])) or vector(0)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.1] }
+
+      - uid: ingest-failures
+        title: Document ingestion failures
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: One or more documents failed to ingest in the last 15 minutes.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: sum(increase(rag_ingest_documents_total{outcome="failed"}[15m])) or vector(0)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: provider-errors
+        title: LLM/embedding provider errors
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: Sustained provider call failures — check API keys, quotas and provider status.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: sum(rate(rag_provider_calls_total{outcome="error"}[10m])) or vector(0)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }

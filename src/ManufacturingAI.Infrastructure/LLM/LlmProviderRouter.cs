@@ -1,6 +1,8 @@
 using ManufacturingAI.Core.Interfaces;
+using ManufacturingAI.Core.Observability;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Runtime.CompilerServices;
 
 namespace ManufacturingAI.Infrastructure.LLM;
 
@@ -18,29 +20,66 @@ public sealed class LlmProviderRouter(
     private readonly string _defaultProvider =
         (config["Llm:Provider"].NullIfEmpty() ?? "openai").ToLowerInvariant();
 
-    private ILLMService Inner
+    private (ILLMService Service, string Provider) Resolve()
     {
-        get
-        {
-            // Keyed providers are registered lower-case; normalize so a saved
-            // value like "Gemini" still resolves the "gemini" service.
-            var provider = (runtime.Provider.NullIfEmpty() ?? _defaultProvider).ToLowerInvariant();
-            if (string.IsNullOrEmpty(provider))
-                throw new InvalidOperationException(
-                    "No LLM provider configured. Go to Settings → AI Model and select a provider.");
-
-            if (sp.GetKeyedService<ILLMService>(provider) is { } svc)
-                return svc;
-
+        // Keyed providers are registered lower-case; normalize so a saved
+        // value like "Gemini" still resolves the "gemini" service.
+        var provider = (runtime.Provider.NullIfEmpty() ?? _defaultProvider).ToLowerInvariant();
+        if (string.IsNullOrEmpty(provider))
             throw new InvalidOperationException(
-                $"Provider '{provider}' is not supported as an LLM provider. " +
-                "Go to Settings → AI Model and select a supported provider (OpenAI, AzureOpenAI, Gemini, Ollama, Groq, or Claude).");
+                "No LLM provider configured. Go to Settings → AI Model and select a provider.");
+
+        if (sp.GetKeyedService<ILLMService>(provider) is { } svc)
+            return (svc, provider);
+
+        throw new InvalidOperationException(
+            $"Provider '{provider}' is not supported as an LLM provider. " +
+            "Go to Settings → AI Model and select a supported provider (OpenAI, AzureOpenAI, Gemini, Ollama, Groq, or Claude).");
+    }
+
+    public async Task<LLMResponse> CompleteAsync(LLMRequest request, CancellationToken ct = default)
+    {
+        var (svc, provider) = Resolve();
+        try
+        {
+            var response = await svc.CompleteAsync(request, ct);
+            Record(provider, "complete", response.IsFromFallback ? "fallback" : "ok");
+            return response;
+        }
+        catch
+        {
+            Record(provider, "complete", "error");
+            throw;
         }
     }
 
-    public Task<LLMResponse> CompleteAsync(LLMRequest request, CancellationToken ct = default)
-        => Inner.CompleteAsync(request, ct);
+    public async IAsyncEnumerable<string> StreamAsync(
+        LLMRequest request, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var (svc, provider) = Resolve();
+        // Manual enumeration: C# forbids yield inside try-catch, and a failure
+        // mid-stream is exactly what this metric needs to capture.
+        await using var e = svc.StreamAsync(request, ct).GetAsyncEnumerator(ct);
+        while (true)
+        {
+            bool hasNext;
+            try
+            {
+                hasNext = await e.MoveNextAsync();
+            }
+            catch
+            {
+                Record(provider, "stream", "error");
+                throw;
+            }
+            if (!hasNext) break;
+            yield return e.Current;
+        }
+        Record(provider, "stream", "ok");
+    }
 
-    public IAsyncEnumerable<string> StreamAsync(LLMRequest request, CancellationToken ct = default)
-        => Inner.StreamAsync(request, ct);
+    private static void Record(string provider, string operation, string outcome)
+        => AppMetrics.ProviderCalls.Add(1,
+            new("kind", "llm"), new("provider", provider),
+            new("operation", operation), new("outcome", outcome));
 }

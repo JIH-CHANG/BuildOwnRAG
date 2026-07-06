@@ -2,10 +2,12 @@ using Hangfire;
 using ManufacturingAI.Core.Common;
 using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
+using ManufacturingAI.Core.Observability;
 using ManufacturingAI.Core.Parser;
 using ManufacturingAI.Core.RAG.Chunking;
 using ManufacturingAI.Infrastructure.Caching;
 using ManufacturingAI.Infrastructure.Repositories;
+using System.Diagnostics;
 using System.Security.Cryptography;
 
 namespace ManufacturingAI.Services.Ingest;
@@ -86,6 +88,8 @@ public class IngestService(
     public async Task<Result> IngestDocumentAsync(
         Guid tenantId, SourceDocument source, ConnectorConfig config, CancellationToken ct = default)
     {
+        var sw = Stopwatch.StartNew();
+
         // 1. 計算 VersionHash（SHA256）
         var versionHash = !string.IsNullOrEmpty(source.VersionHash)
             ? source.VersionHash
@@ -104,6 +108,8 @@ public class IngestService(
                 tenantId, config.ConnectorType, source.SourceId, ct);
             if (existing is not null && existing.Status != DocumentStatus.Indexed)
                 await documentRepository.UpdateStatusAsync(existing.Id, DocumentStatus.Indexed, ct);
+            AppMetrics.DocumentsIngested.Add(1,
+                new("source_type", config.ConnectorType), new("outcome", "skipped"));
             return Result.Ok();
         }
 
@@ -124,7 +130,11 @@ public class IngestService(
             // 3. 依 MimeType 選擇 Parser（不符時回傳 Result.Fail，不拋例外）
             var parseResult = await parserFactory.ParseAsync(source.MimeType, source.Content, source.Title, ct);
             if (!parseResult.Success)
+            {
+                AppMetrics.DocumentsIngested.Add(1,
+                    new("source_type", config.ConnectorType), new("outcome", "failed"));
                 return Result.Fail(parseResult.Error!);
+            }
 
             // 4. 解析完成
             var parsed = parseResult.Value!;
@@ -182,6 +192,8 @@ public class IngestService(
                 {
                     jobClient.Enqueue<ReingestJob>(job =>
                         job.MigrateCollectionAsync(tenantId, actualDimensions, CancellationToken.None));
+                    AppMetrics.DocumentsIngested.Add(1,
+                        new("source_type", config.ConnectorType), new("outcome", "deferred"));
                     return Result.Fail("Embedding dimensions changed — migration enqueued. Retry after migration completes.");
                 }
 
@@ -239,6 +251,12 @@ public class IngestService(
             // 9. 清除相關 Cache
             await cache.RemoveByPatternAsync(CacheKeys.DocumentList(tenantId), ct);
 
+            AppMetrics.DocumentsIngested.Add(1,
+                new("source_type", config.ConnectorType), new("outcome", "indexed"));
+            AppMetrics.IngestDuration.Record(sw.ElapsedMilliseconds,
+                new KeyValuePair<string, object?>("source_type", config.ConnectorType));
+            AppMetrics.ChunksPerDocument.Record(chunks.Count,
+                new KeyValuePair<string, object?>("source_type", config.ConnectorType));
             return Result.Ok();
         }
         catch (Exception ex)
@@ -251,6 +269,8 @@ public class IngestService(
             if (await documentRepository.GetBySourceIdAsync(tenantId, config.ConnectorType, source.SourceId, ct) is { } doc)
                 await documentRepository.UpdateStatusAsync(doc.Id, DocumentStatus.Failed, ct);
 
+            AppMetrics.DocumentsIngested.Add(1,
+                new("source_type", config.ConnectorType), new("outcome", "failed"));
             return Result.Fail(ex.Message);
         }
     }

@@ -1,0 +1,109 @@
+{
+  "uid": "buildownrag-rag",
+  "title": "BuildOwnRAG — RAG Pipeline",
+  "tags": ["buildownrag"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Queries by mode and outcome",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (mode, outcome) (rate(rag_queries_total[5m]))",
+          "legendFormat": "{{mode}} / {{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Cache hit ratio (Hybrid)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(increase(rag_queries_total{mode=\"hybrid\",outcome=\"cached\"}[$__range])) / sum(increase(rag_queries_total{mode=\"hybrid\",outcome=~\"cached|ok\"}[$__range]))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Low-confidence answers",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(increase(rag_queries_total{outcome=\"ok\",low_confidence=\"true\"}[$__range])) / sum(increase(rag_queries_total{outcome=\"ok\"}[$__range]))"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Query latency p95 by mode (cache misses)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(rag_query_duration_milliseconds_bucket[5m])))",
+          "legendFormat": "{{mode}} p95"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Average confidence by mode",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (mode) (rate(rag_query_confidence_sum[15m])) / sum by (mode) (rate(rag_query_confidence_count[15m]))",
+          "legendFormat": "{{mode}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Provider calls",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (kind, provider) (rate(rag_provider_calls_total[5m]))",
+          "legendFormat": "{{kind}} / {{provider}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Provider errors and fallbacks",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "ops", "color": { "mode": "fixed", "fixedColor": "red" } }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (provider, outcome) (rate(rag_provider_calls_total{outcome=~\"error|fallback\"}[5m]))",
+          "legendFormat": "{{provider}} / {{outcome}}"
+        }
+      ]
+    }
+  ]
+}

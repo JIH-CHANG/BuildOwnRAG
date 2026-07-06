@@ -1,0 +1,8 @@
+# Metrics flow: app -> OTLP -> otel-collector -> scraped here.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]

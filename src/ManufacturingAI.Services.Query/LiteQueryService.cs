@@ -5,6 +5,7 @@ using ManufacturingAI.Core;
 using ManufacturingAI.Core.Common;
 using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
+using ManufacturingAI.Core.Observability;
 using ManufacturingAI.Core.RAG.Orchestration;
 using ManufacturingAI.Core.RAG.Retrieval;
 using ManufacturingAI.Infrastructure.Repositories;
@@ -40,6 +41,7 @@ public class LiteQueryService(
             var confidence = chunks.Count > 0 ? 0.9 : 0.0;
             await SaveQueryLogAsync(request, resp.Content, chunks, confidence, sw.ElapsedMilliseconds, ct);
 
+            RecordQueryMetrics(confidence, sw.ElapsedMilliseconds);
             return Result<QueryResult>.Ok(new QueryResult(
                 resp.Content, confidence, BuildSources(chunks, request.IncludeFullContext),
                 false, resp.IsFromFallback, sw.ElapsedMilliseconds));
@@ -47,6 +49,7 @@ public class LiteQueryService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Lite query failed.");
+            AppMetrics.Queries.Add(1, new("mode", "lite"), new("outcome", "error"));
             return Result<QueryResult>.Fail(ex.Message);
         }
     }
@@ -71,7 +74,16 @@ public class LiteQueryService(
         var queryId = await SaveQueryLogAsync(
             request, answer.ToString(), chunks, confidence, sw.ElapsedMilliseconds, ct);
 
+        RecordQueryMetrics(confidence, sw.ElapsedMilliseconds);
         yield return QueryStreamEvent.Completed(BuildSources(chunks), queryId, confidence);
+    }
+
+    private static void RecordQueryMetrics(double confidence, long elapsedMs)
+    {
+        AppMetrics.Queries.Add(1,
+            new("mode", "lite"), new("outcome", "ok"), new("low_confidence", confidence < 0.4));
+        AppMetrics.QueryDuration.Record(elapsedMs, new KeyValuePair<string, object?>("mode", "lite"));
+        AppMetrics.QueryConfidence.Record(confidence, new KeyValuePair<string, object?>("mode", "lite"));
     }
 
     // Use the tenant's custom instructions when set; otherwise the built-in default.

@@ -1,0 +1,101 @@
+{
+  "uid": "buildownrag-ingest",
+  "title": "BuildOwnRAG — Ingestion",
+  "tags": ["buildownrag"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Documents processed by outcome",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(rag_ingest_documents_total[15m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Documents processed by source",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (source_type) (rate(rag_ingest_documents_total[15m]))",
+          "legendFormat": "{{source_type}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Failed documents (selected range)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(rag_ingest_documents_total{outcome=\"failed\"}[$__range])) or vector(0)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Ingest duration p95",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 9, "x": 6, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, source_type) (rate(rag_ingest_duration_milliseconds_bucket[15m])))",
+          "legendFormat": "{{source_type}} p95"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Average chunks per document",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 9, "x": 15, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (source_type) (rate(rag_ingest_chunks_sum[15m])) / sum by (source_type) (rate(rag_ingest_chunks_count[15m]))",
+          "legendFormat": "{{source_type}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Ingestion logs (warnings and errors)",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" },
+      "targets": [
+        {
+          "expr": "{service_name=\"BuildOwnRAG.API\"} |~ \"(?i)(ingest|sync|connector)\" | detected_level =~ \"warn|error|fatal\""
+        }
+      ]
+    }
+  ]
+}

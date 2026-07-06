@@ -56,14 +56,13 @@ This section is intentionally explicit so the repository does not overstate what
 - [x] JWT auth, per-tenant isolation, query logging, and Redis caching
 - [x] First-run setup wizard and Docker Compose deployment
 - [x] Cosine reranker (default); Cohere reranker optional (needs API key, falls back to cosine)
-- [x] Analytics dashboard UI, The analytics backend is implemented, but the frontend dashboard page is still missing.
+- [x] Analytics dashboard (backend + frontend page)
+- [x] Production observability: Prometheus + Loki + Grafana behind `--profile observability`, fed by an OTel Collector; RAG business metrics (query/ingest/provider), provisioned dashboards and alert rules. Aspire dashboard remains the default dev-time target. See [Observability](#observability).
 
 ## TODO
 
 - [ ] Remaining connectors  
   Arena is scaffolded only and is not functional yet.
-- [ ] Production observability  
-  Production-grade observability is not in place yet. Prometheus, Grafana, and Loki still need to be integrated; currently only the Aspire dashboard is available for development-time diagnostics.
 - [ ] Broader test coverage  
   Additional automated test coverage is still needed, including frontend integration tests, end-to-end scenarios, regression coverage, and larger-scale validation.
 
@@ -344,3 +343,40 @@ Key settings in `src/ManufacturingAI.API/appsettings.json` (override with enviro
 
 Secrets are read from the environment in production; never commit real keys. The committed
 `appsettings.json` contains placeholders only.
+
+---
+
+## Observability
+
+The app exports traces, metrics, and logs over OTLP. By default they go to the bundled
+Aspire dashboard (http://localhost:18888) for development-time diagnostics — no persistence,
+no alerting.
+
+For production monitoring, enable the observability profile and point the app at the
+OTel Collector by adding to `.env`:
+
+```
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+```
+
+```
+docker compose --profile observability up -d
+```
+
+| Service        | Port | Purpose                                          |
+| -------------- | ---- | ------------------------------------------------ |
+| grafana        | 3001 | Dashboards + alerting (default login admin/admin, override with GRAFANA_ADMIN_USER/PASSWORD) |
+| prometheus     | 9090 | Metrics storage (30-day retention by default)    |
+| loki           | —    | Log storage (internal; queried through Grafana)  |
+| otel-collector | —    | OTLP funnel: metrics → Prometheus, logs → Loki   |
+
+Grafana is auto-provisioned with three dashboards (API Overview, RAG Pipeline, Ingestion)
+and alert rules (API 5xx rate, ingest failures, provider errors). Alerts fire to the default
+contact point — configure SMTP or a webhook under Alerting → Contact points to be notified.
+
+Beyond the standard ASP.NET Core / HttpClient / Npgsql / runtime instrumentation, the app
+emits RAG business metrics under the `BuildOwnRAG` meter (`rag.queries`, `rag.query.duration`,
+`rag.query.confidence`, `rag.ingest.documents`, `rag.ingest.duration`, `rag.ingest.chunks`,
+`rag.provider.calls`), tagged by retrieval mode, source type, provider, and outcome.
+Traces are accepted and dropped by the collector; add a Tempo service and swap the `nop`
+exporter in `docker/observability/otel-collector.yaml` to persist them.
