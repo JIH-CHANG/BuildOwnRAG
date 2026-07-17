@@ -34,6 +34,10 @@ services:
       # No telemetry collector in the default install; disable OTLP export to avoid
       # noisy "connection refused" logs. Set a collector endpoint + flip to false to enable.
       OTEL_SDK_DISABLED: "${OTEL_SDK_DISABLED:-true}"
+      QaMemory__Folder: "/app/memory"
+    volumes:
+      # Feedback-driven QA memory (per-tenant .md files) must survive container rebuilds
+      - ${DATA_DIR:-./data}/memory:/app/memory
     depends_on:
       postgres:
         condition: service_healthy
