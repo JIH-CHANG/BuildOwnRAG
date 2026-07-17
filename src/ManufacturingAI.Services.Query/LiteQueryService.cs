@@ -6,6 +6,7 @@ using ManufacturingAI.Core.Common;
 using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
 using ManufacturingAI.Core.Observability;
+using ManufacturingAI.Core.RAG.Memory;
 using ManufacturingAI.Core.RAG.Orchestration;
 using ManufacturingAI.Core.RAG.Retrieval;
 using ManufacturingAI.Infrastructure.Repositories;
@@ -26,6 +27,7 @@ public class LiteQueryService(
     ILLMService llm,
     IRepository<Tenant> tenantRepository,
     IQueryLogRepository queryLogRepository,
+    IQaMemoryService qaMemory,
     ILogger<LiteQueryService> logger) : ILiteQueryService
 {
     public async Task<Result<QueryResult>> QueryAsync(QueryRequest request, CancellationToken ct = default)
@@ -34,12 +36,13 @@ public class LiteQueryService(
         {
             var sw = Stopwatch.StartNew();
             var chunks = await retriever.RetrieveAsync(request.TenantId, request.Question, ct);
-            var systemPrompt = await ResolveSystemPromptAsync(request.TenantId, ct);
+            var systemPrompt = await ResolveSystemPromptAsync(request, ct);
             var resp = await llm.CompleteAsync(
                 new LLMRequest(systemPrompt, BuildUserPrompt(request.Question, chunks)), ct);
 
             var confidence = chunks.Count > 0 ? 0.9 : 0.0;
             await SaveQueryLogAsync(request, resp.Content, chunks, confidence, sw.ElapsedMilliseconds, ct);
+            await qaMemory.RecordAnswerAsync(request.TenantId, request.Question, resp.Content, ct);
 
             RecordQueryMetrics(confidence, sw.ElapsedMilliseconds);
             return Result<QueryResult>.Ok(new QueryResult(
@@ -59,7 +62,7 @@ public class LiteQueryService(
     {
         var sw = Stopwatch.StartNew();
         var chunks = await retriever.RetrieveAsync(request.TenantId, request.Question, ct);
-        var systemPrompt = await ResolveSystemPromptAsync(request.TenantId, ct);
+        var systemPrompt = await ResolveSystemPromptAsync(request, ct);
 
         var answer = new StringBuilder();
         await foreach (var token in llm.StreamAsync(
@@ -73,6 +76,7 @@ public class LiteQueryService(
         var confidence = chunks.Count > 0 ? 0.9 : 0.0;
         var queryId = await SaveQueryLogAsync(
             request, answer.ToString(), chunks, confidence, sw.ElapsedMilliseconds, ct);
+        await qaMemory.RecordAnswerAsync(request.TenantId, request.Question, answer.ToString(), ct);
 
         RecordQueryMetrics(confidence, sw.ElapsedMilliseconds);
         yield return QueryStreamEvent.Completed(BuildSources(chunks), queryId, confidence);
@@ -86,12 +90,17 @@ public class LiteQueryService(
         AppMetrics.QueryConfidence.Record(confidence, new KeyValuePair<string, object?>("mode", "lite"));
     }
 
-    // Use the tenant's custom instructions when set; otherwise the built-in default.
-    private async Task<string> ResolveSystemPromptAsync(Guid tenantId, CancellationToken ct)
+    // Use the tenant's custom instructions when set; otherwise the built-in
+    // default. Appends the feedback-driven QA memory block when any entry
+    // matches the incoming question.
+    private async Task<string> ResolveSystemPromptAsync(QueryRequest request, CancellationToken ct)
     {
-        var tenant = await tenantRepository.GetByIdAsync(tenantId, ct);
+        var tenant = await tenantRepository.GetByIdAsync(request.TenantId, ct);
         var custom = tenant?.Settings.SystemPrompt;
-        return string.IsNullOrWhiteSpace(custom) ? PromptDefaults.SystemPrompt : custom;
+        var instructions = string.IsNullOrWhiteSpace(custom) ? PromptDefaults.SystemPrompt : custom;
+
+        var memory = await qaMemory.BuildMemoryContextAsync(request.TenantId, request.Question, ct);
+        return string.IsNullOrEmpty(memory) ? instructions : $"{instructions}\n\n{memory}";
     }
 
     private static string BuildUserPrompt(string question, IReadOnlyList<DocumentChunk> chunks)

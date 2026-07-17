@@ -289,6 +289,30 @@ without embeddings (such as Groq), or for keyword-heavy document sets.
 A Lite query makes exactly one external API call (the LLM). Tunables live under
 `LiteMode` in `appsettings.json` (`TopK`, `PrefilterLimit`).
 
+### Feedback-driven QA memory (both modes)
+
+Code: `src/ManufacturingAI.Core.RAG/Memory/MarkdownQaMemoryService.cs`, options in
+`QaMemory` (`appsettings.json`).
+
+Each tenant has a human-readable markdown memory file (`memory/tenant_{tenantId}.md`;
+`./data/memory` under Docker Compose) that makes answers improve with use:
+
+```
+1. Every generated answer is recorded as a "## Q:" entry (one per normalized question).
+2. Thumbs up/down feedback (POST /api/v1/query/{id}/feedback) updates the entry's
+   positive/negative counts; a downvote also evicts that question's Redis result cache
+   so re-asking regenerates instead of replaying the rejected answer.
+3. At query time, entries whose question is similar to the incoming one (same CJK-aware
+   tokenization as Lite mode; coverage >= MinSimilarity) are injected into the prompt:
+   validated entries (accuracy >= MinAccuracy with at least one upvote) as trusted
+   reference, rejected ones as "mistakes to avoid".
+4. A new answer for an unverified/rejected question replaces the old entry and resets its
+   votes; validated answers are never overwritten by newer generations.
+```
+
+Memory failures are logged and swallowed — the query pipeline never fails because of it.
+Set `QaMemory:Enabled=false` to turn the whole loop off.
+
 ### Mode comparison
 
 | Aspect          | Lite mode                                     | Hybrid mode (default)                      |

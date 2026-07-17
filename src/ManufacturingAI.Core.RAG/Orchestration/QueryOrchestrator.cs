@@ -2,13 +2,13 @@ using ManufacturingAI.Core;
 using ManufacturingAI.Core.Interfaces;
 using ManufacturingAI.Core.Models;
 using ManufacturingAI.Core.Observability;
+using ManufacturingAI.Core.RAG.Memory;
 using ManufacturingAI.Core.RAG.Reranking;
 using ManufacturingAI.Core.RAG.Retrieval;
 using ManufacturingAI.Infrastructure.Caching;
 using ManufacturingAI.Infrastructure.Repositories;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using System.Text;
 
 namespace ManufacturingAI.Core.RAG.Orchestration;
@@ -19,7 +19,8 @@ public class QueryOrchestrator(
     ILLMService llmService,
     ICacheService cache,
     IRepository<Tenant> tenantRepository,
-    IQueryLogRepository queryLogRepository) : IQueryOrchestrator
+    IQueryLogRepository queryLogRepository,
+    IQaMemoryService qaMemory) : IQueryOrchestrator
 {
     private const string FallbackWarning = "\n\nNote: The confidence score for this answer is low. Please verify against the original documents.";
 
@@ -38,13 +39,15 @@ public class QueryOrchestrator(
         return topRerankScore * 0.7 + lengthIndicator * 0.3;
     }
 
-    // Combine the tenant's instructions (or the built-in default) with the retrieved context.
-    private static string BuildSystemPrompt(Tenant tenant, string context)
+    // Combine the tenant's instructions (or the built-in default) with the
+    // feedback-driven QA memory (when any entry matches) and the retrieved context.
+    private static string BuildSystemPrompt(Tenant tenant, string context, string? memory)
     {
         var instructions = string.IsNullOrWhiteSpace(tenant.Settings.SystemPrompt)
             ? PromptDefaults.SystemPrompt
             : tenant.Settings.SystemPrompt;
-        return $"{instructions}\n\nReference documents:\n{context}";
+        var memoryBlock = string.IsNullOrEmpty(memory) ? "" : $"\n\n{memory}";
+        return $"{instructions}{memoryBlock}\n\nReference documents:\n{context}";
     }
 
     public async Task<QueryResult> QueryAsync(QueryRequest request, CancellationToken ct = default)
@@ -54,7 +57,7 @@ public class QueryOrchestrator(
         // 1. Compute query hash and check Redis cache. Evaluation requests
         // (IncludeFullContext) bypass the cache so results reflect real
         // retrieval and carry full chunk content rather than a cached excerpt.
-        var queryHash = ComputeHash(request.Question);
+        var queryHash = QueryHashing.Compute(request.Question);
         var cacheKey = CacheKeys.QueryResult(request.TenantId, queryHash);
         if (!request.IncludeFullContext)
         {
@@ -81,9 +84,10 @@ public class QueryOrchestrator(
         var reranker = rerankerFactory.GetReranker(tenant.Plan);
         var reranked = (await reranker.RerankAsync(request.Question, candidates, RerankTopK, ct)).ToList();
 
-        // 4. Build system prompt with context
+        // 4. Build system prompt with context + feedback-driven QA memory
         var context = BuildContext(reranked);
-        var systemPrompt = BuildSystemPrompt(tenant, context);
+        var memory = await qaMemory.BuildMemoryContextAsync(request.TenantId, request.Question, ct);
+        var systemPrompt = BuildSystemPrompt(tenant, context, memory);
 
         // 5. Call LLM
         var llmRequest = new LLMRequest(
@@ -123,8 +127,9 @@ public class QueryOrchestrator(
             await cache.SetAsync(cacheKey, result, CacheKeys.QueryResultTtl, ct);
         }
 
-        // 10. Persist QueryLog
+        // 10. Persist QueryLog and record the answer into QA memory
         await SaveQueryLogAsync(request, result, reranked, queryHash, ct);
+        await qaMemory.RecordAnswerAsync(request.TenantId, request.Question, result.Answer, ct);
 
         RecordQueryMetrics(confidenceScore, isFromFallback, sw.ElapsedMilliseconds);
         return result;
@@ -145,7 +150,8 @@ public class QueryOrchestrator(
         var reranked = (await reranker.RerankAsync(request.Question, candidates, RerankTopK, ct)).ToList();
 
         var context = BuildContext(reranked);
-        var systemPrompt = BuildSystemPrompt(tenant, context);
+        var memory = await qaMemory.BuildMemoryContextAsync(request.TenantId, request.Question, ct);
+        var systemPrompt = BuildSystemPrompt(tenant, context, memory);
         var llmRequest = new LLMRequest(systemPrompt, request.Question, request.History, 0.3, 2048);
 
         var answer = new StringBuilder();
@@ -174,7 +180,8 @@ public class QueryOrchestrator(
             IsFromCache: false,
             IsFromFallback: isFromFallback,
             LatencyMs: sw.ElapsedMilliseconds);
-        var queryId = await SaveQueryLogAsync(request, result, reranked, ComputeHash(request.Question), ct);
+        var queryId = await SaveQueryLogAsync(request, result, reranked, QueryHashing.Compute(request.Question), ct);
+        await qaMemory.RecordAnswerAsync(request.TenantId, request.Question, result.Answer, ct);
 
         RecordQueryMetrics(confidenceScore, isFromFallback, sw.ElapsedMilliseconds);
         yield return QueryStreamEvent.Completed(sources, queryId, confidenceScore);
@@ -263,11 +270,5 @@ public class QueryOrchestrator(
 
         await queryLogRepository.AddAsync(log, ct);
         return log.Id;
-    }
-
-    private static string ComputeHash(string input)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes)[..16].ToLowerInvariant();
     }
 }

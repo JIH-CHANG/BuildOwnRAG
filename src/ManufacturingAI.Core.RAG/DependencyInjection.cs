@@ -1,4 +1,6 @@
+using ManufacturingAI.Core.Configuration;
 using ManufacturingAI.Core.RAG.Chunking;
+using ManufacturingAI.Core.RAG.Memory;
 using ManufacturingAI.Core.RAG.Orchestration;
 using ManufacturingAI.Core.RAG.Reranking;
 using ManufacturingAI.Core.RAG.Retrieval;
@@ -28,6 +30,10 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IRerankerFactory, RerankerFactory>();
+
+        // Feedback-driven QA memory (per-tenant markdown file injected into prompts)
+        services.AddSingleton(config.GetSection("QaMemory").Get<QaMemoryOptions>() ?? new QaMemoryOptions());
+        services.AddSingleton<IQaMemoryService, MarkdownQaMemoryService>();
 
         return services;
     }

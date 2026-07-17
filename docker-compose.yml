@@ -46,6 +46,10 @@ services:
       GEMINI_API_KEY: "${GEMINI_API_KEY:-${LLM_API_KEY:-}}"
       GEMINI_CHAT_MODEL: "${GEMINI_CHAT_MODEL:-gemini-2.0-flash}"
       GEMINI_EMBEDDING_MODEL: "${GEMINI_EMBEDDING_MODEL:-text-embedding-004}"
+      QaMemory__Folder: "/app/memory"
+    volumes:
+      # Feedback-driven QA memory (per-tenant .md files) must survive container rebuilds
+      - ${DATA_DIR:-./data}/memory:/app/memory
     depends_on:
       postgres:
         condition: service_healthy
