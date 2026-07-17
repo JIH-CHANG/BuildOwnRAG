@@ -38,6 +38,9 @@ Evaluation conditions:
 - Data-source connectors: local Folder (with file-watching), Google Drive, SharePoint, and Confluence — each with incremental sync.
 - Background ingestion via Hangfire and a Redis Stream queue; incremental sync by content hash.
 - Per-tenant isolation of documents, users, query logs, and vector collections.
+- Feedback-driven QA memory: every answer is recorded to a per-tenant markdown file, thumbs
+  up/down feedback maintains each entry's accuracy, and validated past answers (or warnings
+  about rejected ones) are injected into future prompts — answers improve with use.
 
 ---
 
@@ -60,6 +63,7 @@ This section is intentionally explicit so the repository does not overstate what
 - [x] Analytics dashboard (backend + frontend page)
 - [x] Production observability: Prometheus + Loki + Grafana behind `--profile observability`, fed by an OTel Collector; RAG business metrics (query/ingest/provider), provisioned dashboards and alert rules. Aspire dashboard remains the default dev-time target. See [Observability](#observability).
 - [x] Source-deletion propagation: files deleted/trashed at the source are removed from PostgreSQL and Qdrant on the next sync (Google Drive and SharePoint via their change feeds; Folder and Confluence by reconciling a full listing against sync state)
+- [x] Feedback-driven QA memory: per-tenant markdown memory file updated by thumbs feedback and injected into both query modes (see [Feedback-driven QA memory](#feedback-driven-qa-memory-both-modes))
 
 ## TODO
 
@@ -362,6 +366,9 @@ Key settings in `src/ManufacturingAI.API/appsettings.json` (override with enviro
 | Embedding:Provider           | Default embedding provider                    |
 | LiteMode:TopK                | Chunks passed to the LLM in Lite mode         |
 | LiteMode:PrefilterLimit      | Max candidate chunks before BM25 ranking      |
+| QaMemory:Enabled             | Feedback-driven QA memory on/off (default on) |
+| QaMemory:Folder              | Folder for per-tenant memory .md files (empty = app dir; `/app/memory` under Docker) |
+| QaMemory:MinAccuracy / MinSimilarity | Accuracy threshold for trusting an entry; question-similarity threshold for injecting it |
 | Jwt:Secret / Issuer / Audience | JWT signing and validation                  |
 | Encryption:Key / IV          | AES key/IV for encrypted connector settings   |
 
